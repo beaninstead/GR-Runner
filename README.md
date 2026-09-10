@@ -1,33 +1,29 @@
-# Super Mario Implementation in Python
+# Future Run (GR Runner)
 
-This is inspired by Meth-Meth-Method's [super mario game](https://github.com/meth-meth-method/super-mario/)
+Mobile-first pygame game, playable on the web via [pygbag](https://pygame-web.github.io).
 
-## Running
+## Play (Vercel)
 
-* $ pip install -r requirements.txt
-* $ python main.py
+- Live URL: https://future-run.vercel.app/
+- Vercel project: `future-run` (`prj_axo4mB9dgzqZLtyixsEzVAWWHav5`)
+- **Root Directory must be:** `web_app/build/web`
+  (Framework Preset: Other / static files. Do not deploy from the repo root.)
 
-## Standalone windows build
+Hard-refresh after deploys (`Cmd+Shift+R` / clear site data) so `index.html` is not cached.
 
-* $ pip install py2exe
-* $ python compile.py py2exe
+## Local desktop
 
-## Controls
+```bash
+pip install -r requirements.txt
+python main.py
+```
 
-* Left: Move left  
-* Right: Move right  
-* Space: Jump  
-* Shift: Boost   
-* Left/Right Mouseclick: secret   
+## Web build folder
 
-## Current state:
-![Alt text](img/pics.png "current state")
+Static site files live in `web_app/build/web/`:
 
-## Dependencies	
-* pygame	
-* scipy	
+- `index.html` — pygbag loader
+- `web_app.tar.gz` — game assets (~3MB)
+- `vercel.json` — MIME / cache headers for the archive
 
-## Contribution
-
-If you have any Improvements/Ideas/Refactors feel free to contact me or make a Pull Request.
-The code needs still alot of refactoring as it is right now, so I appreciate any kind of Contribution.
+`web_app/requirements.txt` is intentionally empty so cold loads do **not** fetch a ~12MB numpy wheel from the pygame-web CDN.
