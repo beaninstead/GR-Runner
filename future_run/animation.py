@@ -8,9 +8,10 @@ class Animation:
         self.airSprite = airSprite
         self.deltaTime = deltaTime
 
-    def update(self):
-        self.timer += 1
-        if self.timer % self.deltaTime == 0:
+    def update(self, dt=1.0):
+        self.timer += dt
+        while self.timer >= self.deltaTime:
+            self.timer -= self.deltaTime
             if self.index < len(self.images) - 1:
                 self.index += 1
             else:

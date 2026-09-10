@@ -264,21 +264,28 @@ function show_infobox() {
         div.thick_border { border: 4px solid black; }
 
         /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
-        /* average size of droid screen 470dp x 320dp  */
+        /* Portrait 1080x1920: size via JS letterbox (never stretch to fill landscape iframes). */
         canvas.emscripten {
             border: 0px none;
             background-color: transparent;
-            width: 100%;
-            height: 100%;
+            width: auto;
+            height: auto;
+            max-width: 100vw;
+            max-height: 100dvh;
             z-index: 5;
             touch-action: none;
             padding: 0;
-            margin: 0 auto;
+            margin: 0;
             position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            right: 0;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        /* Keep 3d canvas out of the layout if unused */
+        #canvas3d.emscripten {
+            display: none !important;
         }
 
         html, body {
@@ -428,6 +435,40 @@ frameborder="1"
         console.warn("TODO: panda3d canvas monitor", self, ecw, ech)
     }
 
+    // Game is authored at 1080x1920 (portrait). Itch/desktop often hosts a
+    // landscape iframe; without this, CSS width/height:100% squashes sprites.
+    const GAME_AR = 1080 / 1920; // width / height
+
+    function fitGameCanvas() {
+        const c = document.getElementById("canvas");
+        if (!c) return;
+        const vw = window.innerWidth || document.documentElement.clientWidth || 1;
+        const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+        let w, h;
+        if (vw / vh > GAME_AR) {
+            // Viewport wider than portrait → pillarbox (limit by height).
+            h = vh;
+            w = Math.max(1, Math.round(vh * GAME_AR));
+        } else {
+            // Viewport taller/narrower → letterbox (limit by width).
+            w = vw;
+            h = Math.max(1, Math.round(vw / GAME_AR));
+        }
+        c.style.width = w + "px";
+        c.style.height = h + "px";
+        c.style.maxWidth = "100vw";
+        c.style.maxHeight = "100dvh";
+    }
+
+    window.addEventListener("resize", fitGameCanvas);
+    window.addEventListener("orientationchange", () => setTimeout(fitGameCanvas, 50));
+    // Initial + delayed fits (canvas buffer size set after SDL init).
+    fitGameCanvas();
+    setTimeout(fitGameCanvas, 0);
+    setTimeout(fitGameCanvas, 250);
+    setTimeout(fitGameCanvas, 1000);
+    setInterval(fitGameCanvas, 1500);
+
     function set_load_ui(msg) {
         if (status) status.innerHTML = msg
         if (infobox) {
@@ -533,6 +574,20 @@ frameborder="1"
         info.hidden = debug_hidden
         box.hidden =  debug_hidden
 
+        // Hook after pygbag defines window_resize so SDL resizes keep portrait letterbox.
+        if (!window.__fr_resize_hooked) {
+            const prev = window.window_resize
+            window.window_resize = function () {
+                try {
+                    if (typeof prev === "function") prev.apply(this, arguments)
+                } finally {
+                    fitGameCanvas()
+                }
+            }
+            window.__fr_resize_hooked = true
+        }
+        fitGameCanvas()
+
         const archive = expected_archive()
         set_load_ui("Downloading pygame-web runtime from CDN...")
         hook_progress_mirror()
@@ -557,7 +612,7 @@ frameborder="1"
     function custom_postrun(){
         // python main and no VFS filesystem yet.
         console.log(__FILE__, "custom_postrun")
-
+        fitGameCanvas()
     }
 
     function debug() {

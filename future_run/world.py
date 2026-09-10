@@ -53,8 +53,8 @@ class Coin:
         self.anim = anim
         self.alive = True
 
-    def update(self):
-        self.anim.update()
+    def update(self, dt=1.0):
+        self.anim.update(dt)
 
     def draw(self, surf, cam):
         surf.blit(self.anim.image, (self.rect.x - 8 - cam.x, self.rect.y - 8 - cam.y))
@@ -75,7 +75,7 @@ class BookPile:
             self.image = image
             w, h = image.get_size()
         self.rect = pygame.Rect(_tx(col), GROUND_TOP - h, w, h)
-        self.timer = 0
+        self.timer = 0.0
         self._glow_cache = {}
         self._hint_lines = []
         self._hint_outlines = []
@@ -85,12 +85,12 @@ class BookPile:
                 self._hint_lines.append(font.render(line, True, INK))
                 self._hint_outlines.append(font.render(line, True, WHITE))
 
-    def update(self):
-        self.timer += 1
+    def update(self, dt=1.0):
+        self.timer += dt
 
     def _current_image(self):
         if self.frames:
-            idx = self._SPIN_CYCLE[(self.timer // 8) % len(self._SPIN_CYCLE)]
+            idx = self._SPIN_CYCLE[(int(self.timer) // 8) % len(self._SPIN_CYCLE)]
             return self.frames[idx]
         return self.image
 
@@ -189,16 +189,16 @@ class FlyingPhone:
         self.speed = speed
         self.dir = 1
         self.frames = frames
-        self.timer = 0
+        self.timer = 0.0
 
-    def update(self):
-        self.rect.x += int(self.speed * self.dir)
+    def update(self, dt=1.0):
+        self.rect.x += int(self.speed * self.dir * dt)
         if self.rect.x < self.left or self.rect.x > self.right:
             self.dir *= -1
-        self.timer += 1
+        self.timer += dt
 
     def draw(self, surf, cam):
-        img = self.frames[(self.timer // 8) % len(self.frames)]
+        img = self.frames[(int(self.timer) // 8) % len(self.frames)]
         if self.dir < 0:
             img = pygame.transform.flip(img, True, False)
         surf.blit(img, (self.rect.x - cam.x, self.rect.y - cam.y))
@@ -213,12 +213,12 @@ class FallingHazard:
         self.rect = pygame.Rect(x, y, w, h)
         self.speed = speed
         self.image = image
-        self.timer = 0
+        self.timer = 0.0
         self.dir = 1
 
-    def update(self):
-        self.timer += 1
-        self.rect.y += int(self.speed * self.dir)
+    def update(self, dt=1.0):
+        self.timer += dt
+        self.rect.y += int(self.speed * self.dir * dt)
         if self.rect.y < self.base_y - 2 * TILE or self.rect.y > self.base_y + 2 * TILE:
             self.dir *= -1
 
@@ -277,7 +277,7 @@ class GraddiePickup:
         self.rect = pygame.Rect(x, y, GRADDIE_SIZE, GRADDIE_SIZE)
         self.frames = frames
         self.alive = True
-        self.timer = 0
+        self.timer = 0.0
         self.step = 0
         self._glow_cache = {}
         self._hint_lines = []
@@ -287,11 +287,11 @@ class GraddiePickup:
                 self._hint_lines.append(font.render(line, True, INK))
                 self._hint_outlines.append(font.render(line, True, WHITE))
 
-    def update(self):
-        self.timer += 1
+    def update(self, dt=1.0):
+        self.timer += dt
         _, hold = self._HOP[self.step]
         if self.timer >= hold:
-            self.timer = 0
+            self.timer = 0.0
             self.step = (self.step + 1) % len(self._HOP)
 
     def _hop_lift(self):
@@ -394,7 +394,7 @@ class AgentNpc:
             self.frames = list(frames)
         else:
             self.frames = [frames]
-        self.timer = 0
+        self.timer = 0.0
         self.step = 0
         self.image = self.frames[self._IDLE_CYCLE[0] % len(self.frames)]
         w = max(f.get_width() for f in self.frames)
@@ -407,11 +407,12 @@ class AgentNpc:
             self._hint = font.render(AGENT_HINT, True, INK)
             self._hint_outline = font.render(AGENT_HINT, True, WHITE)
 
-    def update(self):
-        self.timer += 1
+    def update(self, dt=1.0):
+        self.timer += dt
         if len(self.frames) <= 1:
             return
-        if self.timer % self._FRAME_HOLD == 0:
+        while self.timer >= self._FRAME_HOLD:
+            self.timer -= self._FRAME_HOLD
             self.step = (self.step + 1) % len(self._IDLE_CYCLE)
         idx = self._IDLE_CYCLE[self.step] % len(self.frames)
         self.image = self.frames[idx]
@@ -622,21 +623,21 @@ class World:
             spans = [(0, self.world_right, GROUND_TOP)]
         return spans
 
-    def update(self):
+    def update(self, dt=1.0):
         for coin in self.coins:
             if coin.alive:
-                coin.update()
+                coin.update(dt)
         for book in self.books:
-            book.update()
+            book.update(dt)
         for phone in self.phones:
-            phone.update()
+            phone.update(dt)
         for haz in self.falling:
-            haz.update()
+            haz.update(dt)
         for g in self.graddies:
             if g.alive:
-                g.update()
+                g.update(dt)
         for npc in self.npcs:
-            npc.update()
+            npc.update(dt)
 
     def _build_prop_platforms(self):
         """One-way tops for bulletin boards and benches (decor + FOMO boards)."""

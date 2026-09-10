@@ -291,20 +291,20 @@ class FutureRun:
         # Gold glow / INVINCIBLE label uses the skill_boost FX path.
         self.player.grant_skill_boost(WORLD4_INVINCIBLE_FRAMES)
 
-    def update_play(self):
+    def update_play(self, dt=1.0):
         keys = pygame.key.get_pressed()
-        self.player.handle_input(keys, self.touch)
+        self.player.handle_input(keys, self.touch, dt=dt)
         if self.touch.consume_jump():
             self.player.jump()
-        self.player.physics(self.world.ground, self.world.solid_rects())
-        self.world.update()
+        self.player.physics(self.world.ground, self.world.solid_rects(), dt=dt)
+        self.world.update(dt)
         self.camera.follow(self.player, self.world.world_right)
         self._maybe_grant_world4_invincible()
 
         if self.player.fell_in_pit(self.world.ground):
             self.lose_life(snap=True)
 
-        if self.player.invincible == 0 and self.player.skill_boost == 0:
+        if self.player.invincible <= 0 and self.player.skill_boost <= 0:
             for book in self.world.books:
                 if self.player.rect.colliderect(book.rect):
                     if (
@@ -355,8 +355,8 @@ class FutureRun:
         # Skip blink while skill_boost gold glow is active (e.g. World 4 grant).
         show = (
             self.player.skill_boost > 0
-            or self.player.invincible == 0
-            or (self.player.invincible // 4) % 2 == 0
+            or self.player.invincible <= 0
+            or (int(self.player.invincible) // 4) % 2 == 0
         )
         if show:
             draw_y = self.player.rect.bottom - img.get_height()
@@ -564,15 +564,15 @@ class FutureRun:
             pos = (x, y)
         return self._logical_pos(pos)
 
-    def update(self):
+    def update(self, dt=1.0):
         if self.state == "intro":
-            self.intro_timer -= 1
+            self.intro_timer -= dt
             if self.intro_timer <= 0:
                 self.state = "play"
         elif self.state == "play":
-            self.update_play()
+            self.update_play(dt)
         elif self.state == "quiz" and self.feedback:
-            self.feedback_timer -= 1
+            self.feedback_timer -= dt
             if self.feedback_timer <= 0:
                 self.finish_quiz()
 

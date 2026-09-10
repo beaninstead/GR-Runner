@@ -7,7 +7,7 @@ import asyncio
 
 import pygame
 
-from future_run.constants import FPS, LOGICAL_H, LOGICAL_W
+from future_run.constants import FPS, LOGICAL_H, LOGICAL_W, frame_scale
 from future_run.game import FutureRun
 from future_run.web import IS_WEB
 
@@ -36,15 +36,18 @@ async def main():
 
     running = True
     while running:
+        # tick() returns ms since last call; use it for dt so web FPS variance
+        # does not slow/speed frame-tuned physics.
+        dt_ms = clock.tick(FPS)
+        dt = frame_scale(dt_ms / 1000.0)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             else:
                 game.handle_event(event)
-        game.update()
+        game.update(dt)
         game.draw()
         pygame.display.flip()
-        clock.tick(FPS)
         await asyncio.sleep(0)
     pygame.quit()
 

@@ -1,6 +1,19 @@
 LOGICAL_W = 1080
 LOGICAL_H = 1920
 FPS = 60
+# Portrait aspect (width / height) for web canvas CSS letterboxing.
+ASPECT = LOGICAL_W / LOGICAL_H
+
+
+def frame_scale(dt_seconds):
+    """Convert real dt to 'frames at 60fps' so per-frame motion stays consistent.
+
+    Web/pygbag often runs well below 60 FPS; without this, frame-based velocity
+    makes the player crawl. Clamp so a hitch does not teleport the player.
+    """
+    if dt_seconds is None or dt_seconds <= 0:
+        return 1.0
+    return max(0.25, min(float(dt_seconds) * FPS, 3.0))
 
 PURPLE = (109, 40, 217)
 PURPLE_DARK = (46, 16, 101)

@@ -23,7 +23,8 @@ Embed settings:
 
 - Kind: **HTML**
 - Enable **This file will be played in the browser**
-- Viewport ~**1080×1920** (or 540×960)
+- Viewport: **540×960** (portrait) preferred, or **1080×1920**. The game letterboxes itself, but a portrait embed size avoids large side bars.
+- **Do not** stretch the embed to a landscape size (e.g. 960×540 / 16:9) — older builds looked horizontally stretched; current builds pillarbox instead.
 - **Do not** enable Frame Options → **SharedArrayBuffer** — pygbag loads `pygame-web.github.io` CDN assets that lack `Cross-Origin-Resource-Policy`, so COEP/`require-corp` blocks the runtime and leaves a stuck “Downloading…” screen.
 
 Vercel/GitHub Pages keep using `web_app.tar.gz`; itch uses `web_app.apk`.

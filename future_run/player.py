@@ -24,13 +24,13 @@ class Player:
         self.on_ground = False
         self.facing = 1
         self.anim = 0
-        self.timer = 0
+        self.timer = 0.0
         self.ducking = False
-        self.invincible = 0
+        self.invincible = 0.0
         self.last_safe = pygame.Vector2(x, y)
         self.stand_h = PLAYER_H
         self.duck_h = int(PLAYER_H * 0.62)
-        self.skill_boost = 0
+        self.skill_boost = 0.0
 
     def grant_skill_boost(self, frames=SKILL_BOOST_FRAMES):
         self.skill_boost = max(self.skill_boost, frames)
@@ -39,7 +39,7 @@ class Player:
     def move_max(self):
         return SKILL_BOOST_MAX if self.skill_boost > 0 else MOVE_MAX
 
-    def handle_input(self, keys, touch=None):
+    def handle_input(self, keys, touch=None, dt=1.0):
         left = keys[pygame.K_LEFT] or keys[pygame.K_a]
         right = keys[pygame.K_RIGHT] or keys[pygame.K_d]
         if touch is not None:
@@ -49,16 +49,16 @@ class Player:
         self._set_duck(self.ducking)
 
         if self.ducking:
-            self.vel_x *= 0.6
+            self.vel_x *= 0.6 ** dt
             return
 
         speed_cap = self.move_max
         if left ^ right:
             self.facing = -1 if left else 1
-            self.vel_x += MOVE_ACCEL * self.facing
+            self.vel_x += MOVE_ACCEL * self.facing * dt
             self.vel_x = max(-speed_cap, min(speed_cap, self.vel_x))
         else:
-            self.vel_x *= FRICTION
+            self.vel_x *= FRICTION ** dt
             if abs(self.vel_x) < 0.25:
                 self.vel_x = 0
 
@@ -75,19 +75,19 @@ class Player:
         self.rect.bottom = bottom
         self.rect.x = x
 
-    def physics(self, ground_spans, platforms=None):
-        self.vel_y += GRAVITY
+    def physics(self, ground_spans, platforms=None, dt=1.0):
+        self.vel_y += GRAVITY * dt
         if self.vel_y > 28:
             self.vel_y = 28
 
-        self.rect.x += int(self.vel_x)
+        self.rect.x += int(self.vel_x * dt)
         if self.rect.x < 40:
             self.rect.x = 40
             self.vel_x = 0
 
         self.on_ground = False
-        self.rect.y += int(self.vel_y)
-        slop = max(40, abs(self.vel_y) + 12)
+        self.rect.y += int(self.vel_y * dt)
+        slop = max(40, abs(self.vel_y * dt) + 12)
         for x0, x1, top in ground_spans:
             if self.rect.right > x0 + 8 and self.rect.left < x1 - 8:
                 if self.vel_y >= 0 and self.rect.bottom >= top and self.rect.bottom <= top + slop:
@@ -105,13 +105,13 @@ class Player:
                     self.last_safe.update(self.rect.x, self.rect.y)
 
         if self.invincible > 0:
-            self.invincible -= 1
+            self.invincible = max(0.0, self.invincible - dt)
         if self.skill_boost > 0:
-            self.skill_boost -= 1
+            self.skill_boost = max(0.0, self.skill_boost - dt)
 
-        self.timer += 1
+        self.timer += dt
         if abs(self.vel_x) > 0.4 and self.on_ground:
-            if self.timer % 6 == 0:
+            if int(self.timer) % 6 == 0 and int(self.timer - dt) % 6 != 0:
                 self.anim = (self.anim + 1) % 4
 
     def snap_safe(self):
