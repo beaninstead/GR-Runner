@@ -7,4 +7,9 @@ settings.json
 *.DS_Store
 __pycache__/
 build/
-web_app/
+!web_app/build/
+web_app/**
+!web_app/build/
+!web_app/build/web/
+!web_app/build/web/**
+web_app/build/web/.vercel/
