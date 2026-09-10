@@ -1,0 +1,10 @@
+*.pyc
+*.vscode
+/dist
+settings.json
+.idea/
+.venv/
+*.DS_Store
+__pycache__/
+build/
+web_app/
