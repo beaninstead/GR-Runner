@@ -1,7 +1,7 @@
 <html lang="en-us"><script src="https://pygame-web.github.io/cdn/0.9.3/pythons.js" type=module id="site" data-python="python3.12" data-LINES=42 data-COLUMNS=132 data-os="snd,gui" async defer>#<!--
 
 print("""
-Loading Future Run from web_app.tar.gz
+Loading Future Run from web_app archive
     Pygbag Version : 0.9.3
     Template Version : 0.9.3
     Python  : 3.12
@@ -28,12 +28,16 @@ async def custom_site():
     # makes cold loads look permanently stuck on "Loading, please wait ...".
     platform.window.transfer.hidden = false
     platform.window.canvas.style.visibility = "visible"
-    try:
-        platform.window.status.innerHTML = "Unpacking game..."
-        platform.window.infobox.innerText = "Unpacking game..."
-        platform.window.show_infobox()
-    except Exception:
-        pass
+
+    def ui(msg):
+        try:
+            platform.window.status.innerHTML = msg
+            platform.window.infobox.innerText = msg
+            platform.window.show_infobox()
+        except Exception:
+            pass
+
+    ui("Unpacking game...")
 
     bundle = "web_app"
 
@@ -42,24 +46,33 @@ async def custom_site():
     appdir.mkdir()
 
 
-    # unpack filesystem from compressed archive into work dir
-    if platform.window.location.host.find('.itch.zone')>0:
-        import zipfile
-        async with platform.fopen("web_app.apk", "rb") as archive:
-            with zipfile.ZipFile(archive) as zip_ref:
-                zip_ref.extractall(appdir.as_posix())
-    else:
+    # itch.io HTML5 uploads must ship web_app.apk (zip). Vercel/GitHub use tar.gz.
+    # Official pygbag --archive packages index.html + favicon.png + *.apk for itch.
+    on_itch = platform.window.location.host.find('.itch.zone') > 0
+    unpacked = False
+    if on_itch:
+        try:
+            import zipfile
+            ui("Downloading game package (apk)...")
+            async with platform.fopen("web_app.apk", "rb") as archive:
+                ui("Unpacking game package...")
+                with zipfile.ZipFile(archive) as zip_ref:
+                    zip_ref.extractall(appdir.as_posix())
+            unpacked = True
+        except Exception as e:
+            print("itch apk unpack failed, trying tar.gz fallback:", e)
+            ui(f"apk failed ({e}); trying tar.gz...")
+
+    if not unpacked:
         import tarfile
+        ui("Downloading game package (tar.gz)...")
         async with platform.fopen("web_app.tar.gz", "rb") as archive:
+            ui("Unpacking game package...")
             tar = tarfile.open(fileobj=archive, mode="r:gz")
             tar.extractall(path=appdir.as_posix(), filter='tar')
             tar.close()
 
-    try:
-        platform.window.status.innerHTML = "Starting Python..."
-        platform.window.infobox.innerText = "Starting Python..."
-    except Exception:
-        pass
+    ui("Starting Python...")
 
     # preloader will change to work dir and prepend it to sys.path
     platform.run_main(PyConfig, loaderhome= appdir / "assets", loadermain=None)
@@ -219,15 +232,30 @@ function show_infobox() {
 
         #progress {
             height: 20px;
-            width: 300px;
+            width: min(320px, 80vw);
+        }
+
+        #transfer {
+            position: fixed;
+            left: 50%;
+            top: 42%;
+            transform: translate(-50%, -50%);
+            z-index: 999998;
+            color: #c8c8d0;
+            background: rgba(10, 8, 20, 0.85);
+            padding: 16px 20px;
+            border-radius: 8px;
         }
 
         #infobox {
             position: fixed; /* center relative to viewport */
-            background: green;
-            color: blue;
+            background: #1a7f2e;
+            color: #e8f7ff;
             font-weight: bold;
             padding: 12px 24px;
+            max-width: min(90vw, 420px);
+            text-align: center;
+            line-height: 1.35;
  /*           display: none; */
             z-index: 999999;
         }
@@ -315,9 +343,9 @@ function show_infobox() {
 
     <div id="transfer" align=center>
 <!--        <div class="spinner" id='spinner'></div> -->
-        <div class="emscripten" id="status">Downloading game (~13MB)...</div>
+        <div class="emscripten" id="status">Starting loader...</div>
         <div class="emscripten">
-            <progress value="0" max="100" id="progress"></progress>
+            <progress value="0" max="200" id="progress"></progress>
         </div>
     </div>
 
@@ -400,6 +428,99 @@ frameborder="1"
         console.warn("TODO: panda3d canvas monitor", self, ecw, ech)
     }
 
+    function set_load_ui(msg) {
+        if (status) status.innerHTML = msg
+        if (infobox) {
+            infobox.innerText = msg
+            show_infobox()
+        }
+    }
+
+    function on_itch_host() {
+        return (location.hostname || "").indexOf(".itch.zone") > 0
+    }
+
+    function expected_archive() {
+        // Official pygbag itch web.zip ships *.apk; Vercel/GitHub Pages use *.tar.gz.
+        return on_itch_host() ? "web_app.apk" : "web_app.tar.gz"
+    }
+
+    async function probe_url(url, label) {
+        try {
+            let res = await fetch(url, { method: "HEAD", cache: "no-store" })
+            // Some hosts reject HEAD; ask for a single byte instead of the full ~13MB package.
+            if (!res.ok || res.status === 405 || res.status === 501) {
+                res = await fetch(url, {
+                    method: "GET",
+                    headers: { "Range": "bytes=0-0" },
+                    cache: "no-store",
+                })
+            }
+            if (!(res.ok || res.status === 206)) {
+                throw new Error(label + " HTTP " + res.status)
+            }
+            try { res.body && res.body.cancel && res.body.cancel() } catch (e) {}
+            return true
+        } catch (err) {
+            console.error("probe failed", url, err)
+            set_load_ui("FAILED: " + label + " — " + (err && err.message ? err.message : err))
+            return false
+        }
+    }
+
+    function hook_progress_mirror() {
+        // Mirror pygbag/emscripten setStatus into the centered infobox so mobile
+        // users see % / phase instead of a static "Downloading..." bar.
+        const start = Date.now()
+        const timer = setInterval(() => {
+            try {
+                if (!window.Module || !Module.setStatus) return
+                if (Module.__fr_status_hooked) {
+                    clearInterval(timer)
+                    return
+                }
+                const orig = Module.setStatus.bind(Module)
+                Module.setStatus = function(text) {
+                    orig(text)
+                    if (!text || text === "hide") return
+                    const m = String(text).match(/([^(]+)\((\d+(?:\.\d+)?)\/(\d+)\)/)
+                    if (m) {
+                        const pct = Math.min(100, Math.round((parseFloat(m[2]) / parseFloat(m[3])) * 100))
+                        set_load_ui(m[1].trim() + " " + pct + "%")
+                    } else {
+                        set_load_ui(String(text))
+                    }
+                }
+                Module.__fr_status_hooked = true
+                clearInterval(timer)
+            } catch (e) {
+                console.warn("status hook", e)
+            }
+        }, 250)
+
+        // If CDN/runtime never progresses, surface a useful hint (not a silent hang).
+        setTimeout(() => {
+            try {
+                const elapsed = Math.round((Date.now() - start) / 1000)
+                const cur = (infobox && infobox.innerText) || ""
+                if (cur.indexOf("FAILED:") === 0) return
+                if (cur.indexOf("Unpacking") >= 0 || cur.indexOf("Starting Python") >= 0) return
+                if (cur.indexOf("Tap to start") >= 0 || cur.indexOf("%") >= 0) return
+                if (window.crossOriginIsolated) {
+                    set_load_ui(
+                        "Still loading after " + elapsed +
+                        "s. SharedArrayBuffer/COEP is ON — turn OFF itch Frame Options → SharedArrayBuffer (pygame-web CDN lacks CORP)."
+                    )
+                } else {
+                    set_load_ui(
+                        "Still loading after " + elapsed +
+                        "s (CDN runtime ~few MB + game ~13MB). Check network / adblock; keep waiting if on slow mobile."
+                    )
+                }
+            } catch (e) {}
+        }, 25000)
+    }
+
     async function custom_onload(debug_hidden) {
         // this is called before anything python is loaded
         // make your js customization here
@@ -412,13 +533,19 @@ frameborder="1"
         info.hidden = debug_hidden
         box.hidden =  debug_hidden
 
-        if (status) {
-            status.innerHTML = "Downloading runtime + game..."
+        const archive = expected_archive()
+        set_load_ui("Downloading pygame-web runtime from CDN...")
+        hook_progress_mirror()
+
+        // Fail fast if the itch upload is missing the required archive name.
+        // (Previous zip shipped only web_app.tar.gz; itch loader expects web_app.apk.)
+        const archiveOk = await probe_url("./" + archive, archive)
+        if (!archiveOk && on_itch_host() && archive === "web_app.apk") {
+            // Soft hint; Python path also falls back to tar.gz if present.
+            await probe_url("./web_app.tar.gz", "web_app.tar.gz (fallback)")
+        } else if (archiveOk) {
+            set_load_ui("Runtime CDN + " + archive + " found. Downloading...")
         }
-        if (infobox) {
-            infobox.innerText = "Downloading runtime + game..."
-        }
-        show_infobox()
     }
 
     function custom_prerun(){

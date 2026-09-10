@@ -11,6 +11,23 @@ Mobile-first pygame game, playable on the web via [pygbag](https://pygame-web.gi
 
 Hard-refresh after deploys (`Cmd+Shift+R` / clear site data) so `index.html` is not cached.
 
+## itch.io HTML5
+
+Upload **`future-run-itch.zip`** (or rebuild it from `web_app/build/web` with only):
+
+- `index.html`
+- `favicon.png`
+- `web_app.apk`  ← required on `*.itch.zone` (do **not** upload only `web_app.tar.gz`)
+
+Embed settings:
+
+- Kind: **HTML**
+- Enable **This file will be played in the browser**
+- Viewport ~**1080×1920** (or 540×960)
+- **Do not** enable Frame Options → **SharedArrayBuffer** — pygbag loads `pygame-web.github.io` CDN assets that lack `Cross-Origin-Resource-Policy`, so COEP/`require-corp` blocks the runtime and leaves a stuck “Downloading…” screen.
+
+Vercel/GitHub Pages keep using `web_app.tar.gz`; itch uses `web_app.apk`.
+
 ## Local desktop
 
 ```bash
@@ -23,7 +40,8 @@ python main.py
 Static site files live in `web_app/build/web/`:
 
 - `index.html` — pygbag loader
-- `web_app.tar.gz` — game assets (~3MB)
+- `web_app.tar.gz` — game assets for Vercel (~13MB)
+- `web_app.apk` — same assets as a zip, for itch.io
 - `vercel.json` — MIME / cache headers for the archive
 
 `web_app/requirements.txt` is intentionally empty so cold loads do **not** fetch a ~12MB numpy wheel from the pygame-web CDN.
