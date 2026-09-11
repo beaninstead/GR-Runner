@@ -8,6 +8,12 @@
 # Headers aligned with web_app/build/web/vercel.json (+ apk for Netlify/Git hosts).
 
 [[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors *"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
   for = "/web_app.tar.gz"
   [headers.values]
     Content-Type = "application/gzip"
@@ -30,8 +36,10 @@
   for = "/index.html"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+    Content-Security-Policy = "frame-ancestors *"
 
 [[headers]]
   for = "/"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+    Content-Security-Policy = "frame-ancestors *"

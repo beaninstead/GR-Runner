@@ -219,20 +219,25 @@ function show_infobox() {
 
 
     <link rel="icon" type="image/png" href="favicon.png" sizes="16x16">
+    <!-- Kick off CDN runtime + game archive ASAP (cold start still downloads both). -->
+    <link rel="dns-prefetch" href="https://pygame-web.github.io">
+    <link rel="preconnect" href="https://pygame-web.github.io" crossorigin>
+    <link rel="modulepreload" href="https://pygame-web.github.io/cdn/0.9.3/pythons.js" crossorigin>
+    <link rel="preload" href="./web_app.tar.gz" as="fetch" type="application/gzip" crossorigin="anonymous">
 
     <style>
         #status {
-            display: inline-block;
-            vertical-align: top;
-            margin-top: 20px;
-            margin-left: 30px;
+            display: block;
+            margin: 0 0 10px 0;
             font-weight: bold;
-            color: rgb(120, 120, 120);
+            color: #c8c8d0;
+            font-size: 14px;
         }
 
         #progress {
-            height: 20px;
-            width: min(320px, 80vw);
+            height: 14px;
+            width: min(280px, 72vw);
+            accent-color: #3ddc84;
         }
 
         #transfer {
@@ -242,9 +247,11 @@ function show_infobox() {
             transform: translate(-50%, -50%);
             z-index: 999998;
             color: #c8c8d0;
-            background: rgba(10, 8, 20, 0.85);
-            padding: 16px 20px;
-            border-radius: 8px;
+            background: rgba(10, 8, 20, 0.92);
+            padding: 18px 22px;
+            border-radius: 10px;
+            border: 1px solid rgba(61, 220, 132, 0.35);
+            min-width: min(300px, 80vw);
         }
 
         #infobox {
@@ -370,7 +377,7 @@ height="1920px"
     oncontextmenu="event.preventDefault()" tabindex=1 hidden>
     </canvas>
 
-    <div id="infobox">Loading, please wait ...</div>
+    <div id="infobox">Starting Future Run…</div>
 
     <div id=html></div>
 
@@ -513,6 +520,18 @@ frameborder="1"
         // Mirror pygbag/emscripten setStatus into the centered infobox so mobile
         // users see % / phase instead of a static "Downloading..." bar.
         const start = Date.now()
+        let lastPct = -1
+        let sawPct = false
+
+        function doneish(cur) {
+            return (
+                cur.indexOf("FAILED:") === 0 ||
+                cur.indexOf("Unpacking") >= 0 ||
+                cur.indexOf("Starting Python") >= 0 ||
+                cur.indexOf("Tap to start") >= 0
+            )
+        }
+
         const timer = setInterval(() => {
             try {
                 if (!window.Module || !Module.setStatus) return
@@ -527,6 +546,14 @@ frameborder="1"
                     const m = String(text).match(/([^(]+)\((\d+(?:\.\d+)?)\/(\d+)\)/)
                     if (m) {
                         const pct = Math.min(100, Math.round((parseFloat(m[2]) / parseFloat(m[3])) * 100))
+                        lastPct = pct
+                        sawPct = true
+                        try {
+                            if (progress) {
+                                progress.value = pct
+                                progress.max = 100
+                            }
+                        } catch (e) {}
                         set_load_ui(m[1].trim() + " " + pct + "%")
                     } else {
                         set_load_ui(String(text))
@@ -537,16 +564,31 @@ frameborder="1"
             } catch (e) {
                 console.warn("status hook", e)
             }
-        }, 250)
+        }, 200)
+
+        // Heartbeat so iframe embeds never look frozen before % arrives.
+        const heartbeat = setInterval(() => {
+            try {
+                const elapsed = Math.round((Date.now() - start) / 1000)
+                const cur = (infobox && infobox.innerText) || ""
+                if (doneish(cur) || cur.indexOf("Tap to start") >= 0) {
+                    clearInterval(heartbeat)
+                    return
+                }
+                if (sawPct || cur.indexOf("%") >= 0) return
+                set_load_ui(
+                    "Downloading runtime + game package… " + elapsed +
+                    "s (first open ~few MB CDN + ~2.5MB game)"
+                )
+            } catch (e) {}
+        }, 2000)
 
         // If CDN/runtime never progresses, surface a useful hint (not a silent hang).
         setTimeout(() => {
             try {
                 const elapsed = Math.round((Date.now() - start) / 1000)
                 const cur = (infobox && infobox.innerText) || ""
-                if (cur.indexOf("FAILED:") === 0) return
-                if (cur.indexOf("Unpacking") >= 0 || cur.indexOf("Starting Python") >= 0) return
-                if (cur.indexOf("Tap to start") >= 0 || cur.indexOf("%") >= 0) return
+                if (doneish(cur) || cur.indexOf("%") >= 0) return
                 if (window.crossOriginIsolated) {
                     set_load_ui(
                         "Still loading after " + elapsed +
@@ -554,8 +596,8 @@ frameborder="1"
                     )
                 } else {
                     set_load_ui(
-                        "Still loading after " + elapsed +
-                        "s (CDN runtime ~few MB + game ~13MB). Check network / adblock; keep waiting if on slow mobile."
+                        "Still downloading after " + elapsed +
+                        "s (CDN runtime + ~2.5MB game). Keep this tab open; slow mobile is normal on first visit."
                     )
                 }
             } catch (e) {}
@@ -589,7 +631,7 @@ frameborder="1"
         fitGameCanvas()
 
         const archive = expected_archive()
-        set_load_ui("Downloading pygame-web runtime from CDN...")
+        set_load_ui("Connecting to pygame-web CDN…")
         hook_progress_mirror()
 
         // Fail fast if the itch upload is missing the required archive name.
@@ -599,7 +641,7 @@ frameborder="1"
             // Soft hint; Python path also falls back to tar.gz if present.
             await probe_url("./web_app.tar.gz", "web_app.tar.gz (fallback)")
         } else if (archiveOk) {
-            set_load_ui("Runtime CDN + " + archive + " found. Downloading...")
+            set_load_ui("Found " + archive + ". Downloading CDN runtime + game…")
         }
     }
 
