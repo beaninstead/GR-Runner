@@ -1,0 +1,37 @@
+# Static pygbag site — same publish root as Vercel (web_app/build/web).
+# No build step; files are already committed under that folder.
+
+[build]
+  publish = "web_app/build/web"
+  command = "true"
+
+# Headers aligned with web_app/build/web/vercel.json (+ apk for Netlify/Git hosts).
+
+[[headers]]
+  for = "/web_app.tar.gz"
+  [headers.values]
+    Content-Type = "application/gzip"
+    Cache-Control = "public, max-age=31536000, immutable"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/web_app.apk"
+  [headers.values]
+    Content-Type = "application/octet-stream"
+    Cache-Control = "public, max-age=31536000, immutable"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/favicon.png"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
