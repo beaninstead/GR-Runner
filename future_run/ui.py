@@ -45,11 +45,11 @@ def wrap_text(font, text, width):
 _QUIZ_HEADER_RATIO = 0.314
 _QUIZ_PANEL_ASPECT = 691 / 1024  # native h/w
 _QUIZ_PANEL_HEIGHT_SCALE = 1.2  # +20% taller dialogue box
-# Quiz typography: prior sizes × 1.2
-_QUIZ_TITLE_SIZE = 26  # was font_md 22
-_QUIZ_PROMPT_SIZE = 22  # was 18
-_QUIZ_OPTION_SIZE = 19  # was font_sm 16
-_QUIZ_HINT_SIZE = 14  # was font_xs 12
+# Quiz typography — sized to fill cream header + option buttons
+_QUIZ_TITLE_SIZE = 36
+_QUIZ_PROMPT_SIZE = 28
+_QUIZ_OPTION_SIZE = 26
+_QUIZ_HINT_SIZE = 18
 # Ask-Graddie banner: text lives in the white panel right of the character.
 ASK_GRADDIE_TEXT_LEFT = 0.29
 ASK_GRADDIE_TEXT_RIGHT = 0.05
@@ -89,20 +89,20 @@ def quiz_layout(assets, quiz, has_helper=False):
         helper_w = min(_ASK_GRADDIE_MAX_W, opt_w)
         helper_h = max(86, int(round(helper_w / aspect)))
         helper_gap = 17
-        opt_h = 89
-        gap = 14
+        opt_h = 100
+        gap = 12
     elif has_helper:
         helper_w = opt_w
         helper_h = 96
         helper_gap = 22
-        opt_h = 101
-        gap = 19
+        opt_h = 112
+        gap = 16
     else:
         helper_w = 0
         helper_h = 0
         helper_gap = 0
-        opt_h = 110
-        gap = 26
+        opt_h = 120
+        gap = 22
 
     body_top = panel_y + header_h + 28
     body_bottom = panel_y + panel_h - 34
