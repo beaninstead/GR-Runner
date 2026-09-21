@@ -705,7 +705,7 @@ class World:
             npc.update(dt)
 
     def _build_prop_platforms(self):
-        """One-way tops for bulletin boards and benches (decor + FOMO boards)."""
+        """One-way tops for boards, benches, FOMO frames, and book piles."""
         rects = []
         plat_h = max(8, TILE // 3)
         for kind, col in self.decor:
@@ -721,6 +721,12 @@ class World:
             rects.append(pygame.Rect(x, top, w, plat_h))
         for board in self.fomo_boards:
             rects.append(board.platform_rect)
+        # Book tops via physics (same as bench) so grounding does not depend on
+        # post-pass colliderect, which fails when feet sit exactly on the rim.
+        for book in self.books:
+            rects.append(
+                pygame.Rect(book.rect.x, book.rect.y, book.rect.w, plat_h)
+            )
         return rects
 
     def solid_rects(self):

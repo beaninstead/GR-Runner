@@ -105,13 +105,23 @@ class Player:
                     self.on_ground = True
                     self.last_safe.update(self.rect.x, self.rect.y)
 
+        # Span-style check (not colliderect): feet snapped to plat.top share an
+        # edge, so colliderect is false. With small dt, int(vel_y*dt)==0 leaves
+        # no overlap → on_ground flickers and idle/jump/fall frames thrash.
         for plat in platforms or []:
-            if self.vel_y >= 0 and self.rect.colliderect(plat):
-                if self.rect.bottom <= plat.top + slop and self.rect.bottom >= plat.top:
-                    self.rect.bottom = plat.top
-                    self.vel_y = 0
-                    self.on_ground = True
-                    self.last_safe.update(self.rect.x, self.rect.y)
+            if self.vel_y >= 0:
+                if (
+                    self.rect.right > plat.left + FOOT_INSET
+                    and self.rect.left < plat.right - FOOT_INSET
+                ):
+                    if (
+                        self.rect.bottom >= plat.top
+                        and self.rect.bottom <= plat.top + slop
+                    ):
+                        self.rect.bottom = plat.top
+                        self.vel_y = 0
+                        self.on_ground = True
+                        self.last_safe.update(self.rect.x, self.rect.y)
 
         if self.invincible > 0:
             self.invincible = max(0.0, self.invincible - dt)
