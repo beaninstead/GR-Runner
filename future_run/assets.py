@@ -341,16 +341,41 @@ def slice_row(sheet, count, frame_w, frame_h, y=0, inset=0):
     return frames
 
 
+def _opaque_column_flags(sheet, alpha_threshold=40):
+    """Bool per column: any opaque pixel. Works without numpy (web/pygbag)."""
+    if np is not None:
+        alpha = pygame.surfarray.array_alpha(sheet)
+        return np.any(alpha > alpha_threshold, axis=1)
+    mask = pygame.mask.from_surface(sheet, threshold=alpha_threshold)
+    w, h = sheet.get_size()
+    strip = pygame.mask.Mask((1, h), fill=True)
+    return [bool(mask.overlap(strip, (x, 0))) for x in range(w)]
+
+
+def _opaque_column_counts(sheet, alpha_threshold=40):
+    """Opaque pixel count per column. Works without numpy (web/pygbag)."""
+    if np is not None:
+        alpha = pygame.surfarray.array_alpha(sheet)
+        return np.count_nonzero(alpha > alpha_threshold, axis=1).astype(np.int32)
+    mask = pygame.mask.from_surface(sheet, threshold=alpha_threshold)
+    w, h = sheet.get_size()
+    counts = [0] * w
+    for x in range(w):
+        n = 0
+        for y in range(h):
+            if mask.get_at((x, y)):
+                n += 1
+        counts[x] = n
+    return counts
+
+
 def _opaque_column_runs(sheet, alpha_threshold=40, merge_gap=3, min_width=4):
     """Return inclusive (x0, x1) spans of opaque columns, merging thin gaps."""
-    if np is None:
-        return []
-    alpha = pygame.surfarray.array_alpha(sheet)
-    cols = np.any(alpha > alpha_threshold, axis=1)
+    cols = _opaque_column_flags(sheet, alpha_threshold=alpha_threshold)
     runs = []
     in_run = False
     start = 0
-    width = cols.shape[0]
+    width = len(cols)
     for x in range(width):
         if cols[x] and not in_run:
             in_run = True
@@ -383,13 +408,12 @@ def _valley_frame_bounds(sheet, count, alpha_threshold=40, search=18, edge_pad=8
     Used when sprites touch or jump+dead merge so blob counting != count.
     Cuts sit at local minima near equal-content boundaries.
     """
-    alpha = pygame.surfarray.array_alpha(sheet)
-    colsum = np.count_nonzero(alpha > alpha_threshold, axis=1).astype(np.int32)
-    opaque = np.flatnonzero(colsum > 0)
-    if opaque.size == 0:
+    colsum = _opaque_column_counts(sheet, alpha_threshold=alpha_threshold)
+    opaque = [i for i, n in enumerate(colsum) if n > 0]
+    if not opaque:
         return []
-    x0 = int(opaque[0])
-    x1 = int(opaque[-1])
+    x0 = opaque[0]
+    x1 = opaque[-1]
     span = x1 - x0 + 1
     if span < count:
         return []
@@ -401,7 +425,14 @@ def _valley_frame_bounds(sheet, count, alpha_threshold=40, search=18, edge_pad=8
         if lo >= hi:
             cuts.append(ideal)
         else:
-            cuts.append(lo + int(np.argmin(colsum[lo : hi + 1])))
+            window = colsum[lo : hi + 1]
+            best = 0
+            best_v = window[0]
+            for j, v in enumerate(window):
+                if v < best_v:
+                    best_v = v
+                    best = j
+            cuts.append(lo + best)
     cuts.append(x1 + 1)
     bounds = []
     for i in range(count):
@@ -433,23 +464,24 @@ def slice_row_blobs(sheet, count, y=0, alpha_threshold=40, merge_gap=3):
 
     If blob count mismatches (touching sprites / merged jump+dead), split at
     column-density valleys. Last resort: equal-width cells with side inset.
+
+    Uses pygame.mask column scans when numpy is missing (web) — equal-width
+    fallback alone causes neighbor-frame ghosting on packed sheets.
     """
     sheet_w, sheet_h = sheet.get_size()
     frame_h = sheet_h - y
-    if np is None:
-        frame_w = max(1, sheet_w // count)
-        return slice_row(sheet, count, frame_w, frame_h, y=y, inset=6)
     runs = _opaque_column_runs(sheet, alpha_threshold=alpha_threshold, merge_gap=merge_gap)
     if len(runs) == count:
-        return _blit_x_spans(sheet, runs, y, frame_h, inset=2)
+        # Inset strips contact crumbs / suitcase wheels at blob edges.
+        return _blit_x_spans(sheet, runs, y, frame_h, inset=4)
     valley = _valley_frame_bounds(
         sheet, count, alpha_threshold=alpha_threshold
     )
     if len(valley) == count:
         # Inset so valley contact pixels shared by neighbors are discarded.
-        return _blit_x_spans(sheet, valley, y, frame_h, inset=4)
+        return _blit_x_spans(sheet, valley, y, frame_h, inset=5)
     frame_w = max(1, sheet_w // count)
-    return slice_row(sheet, count, frame_w, frame_h, y=y, inset=6)
+    return slice_row(sheet, count, frame_w, frame_h, y=y, inset=8)
 
 
 def load_player_sheet(path, preserve_dark=False):
