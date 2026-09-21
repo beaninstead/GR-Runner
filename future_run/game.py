@@ -122,6 +122,7 @@ class FutureRun:
         self.invincible_granted = False
         self.camera.follow(self.player, self.world.world_right)
         self.intro_timer = WORLD_INTRO_FRAMES
+        self.touch.clear()
         if self.state not in ("menu", "gameover", "win"):
             self.state = "intro"
 
@@ -146,9 +147,12 @@ class FutureRun:
             self.player.invincible = max(self.player.invincible, INVINCIBLE_FRAMES)
         if self.lives <= 0:
             self.lives = 0
+            self.touch.clear()
             self.state = "gameover"
 
     def open_quiz(self, which):
+        # Finger/mouse up may be swallowed by the quiz UI, so drop held pads now.
+        self.touch.clear()
         quiz = QUIZZES[which]
         self.active_quiz = quiz
         self.feedback = ""
@@ -258,8 +262,11 @@ class FutureRun:
         self.feedback = ""
         if self.state != "gameover":
             self.state = "play"
+        # Safety net: ensure no stale hold survives quiz → play.
+        self.touch.clear()
 
     def advance_world(self):
+        self.touch.clear()
         next_i = self.level_index + 1
         if next_i >= len(LEVELS):
             self.state = "win"
@@ -494,8 +501,10 @@ class FutureRun:
 
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             if self.state == "play":
+                self.touch.clear()
                 self.state = "pause"
             elif self.state == "pause":
+                self.touch.clear()
                 self.state = "play"
             return
 
@@ -516,9 +525,11 @@ class FutureRun:
                 pygame.K_SPACE,
             ):
                 self.intro_timer = 0
+                self.touch.clear()
                 self.state = "play"
             if event.type == pygame.MOUSEBUTTONDOWN:
                 self.intro_timer = 0
+                self.touch.clear()
                 self.state = "play"
         elif self.state == "world_clear":
             if event.type == pygame.MOUSEBUTTONDOWN and self.clear_continue.hit(
@@ -595,6 +606,7 @@ class FutureRun:
         if self.state == "intro":
             self.intro_timer -= dt
             if self.intro_timer <= 0:
+                self.touch.clear()
                 self.state = "play"
         elif self.state == "play":
             self.update_play(dt)

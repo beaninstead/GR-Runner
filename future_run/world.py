@@ -552,7 +552,16 @@ class World:
         self.clouds = list(self.cfg.get("clouds") or [])
         self.decor = list(self.cfg.get("decor") or [])
         self.sky_tint = SKY_TINTS.get(self.cfg.get("sky", "day"))
+        # Non-tileable skyline: keep a per-world strip wide enough that parallax
+        # never needs to wrap inside the viewport (slight H-stretch only if short).
         self.backdrop = self.assets.backdrops.get(self.cfg.get("backdrop"))
+        if self.backdrop is not None:
+            bw = self.backdrop.get_width()
+            bh = self.backdrop.get_height()
+            max_cam = max(0, self.world_right - LOGICAL_W)
+            need_w = LOGICAL_W + int(max_cam * 0.35)
+            if bw < need_w:
+                self.backdrop = pygame.transform.scale(self.backdrop, (need_w, bh))
 
         gy = GROUND_ROW
         self.coins = []
@@ -737,12 +746,13 @@ class World:
         ground = self.assets.tile("ground")
 
         if self.backdrop is not None:
-            # Parallax city/sky strip filling everything above the ground.
+            # Parallax panorama above the ground. Source art is not seamless, so
+            # scroll a single strip (clamp) — never tile/wrap mid-screen.
             bw = self.backdrop.get_width()
-            offset = int(-cam.x * 0.35) % bw
             y = -cam.y
-            for x in range(offset - bw, LOGICAL_W + bw, bw):
-                surf.blit(self.backdrop, (x, y))
+            max_shift = max(0, bw - LOGICAL_W)
+            shift = min(max(0, int(cam.x * 0.35)), max_shift)
+            surf.blit(self.backdrop, (-shift, y))
             for ty in range(max(y0, GROUND_ROW), y1):
                 for tx in range(x0, x1):
                     dest = (tx * TILE - cam.x, ty * TILE - cam.y)

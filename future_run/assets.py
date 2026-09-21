@@ -69,10 +69,47 @@ def _write_rgba(image, rgb, alpha):
     return image
 
 
+def _ensure_rgba(image):
+    """Force a true 32-bit SRCALPHA surface (palette/P-mode PNGs need this)."""
+    return image.convert_alpha()
+
+
+def _knockout_black_fallback(image, max_rgb_sum=0):
+    """Remove black matte without numpy (web/pygbag ships with np=None).
+
+    Optimized palette sheets often lose tRNS; opaque black then fills each
+    frame cell and fit_box_bottom shrinks the character into a tall strip.
+    Exact (0,0,0) uses colorkey blit; max_rgb_sum>0 also clears near-black.
+    """
+    image = _ensure_rgba(image)
+    if max_rgb_sum <= 0:
+        keyed = image.copy()
+        keyed.set_colorkey((0, 0, 0))
+        out = pygame.Surface(image.get_size(), pygame.SRCALPHA)
+        out.blit(keyed, (0, 0))
+        return out
+    out = image.copy()
+    w, h = out.get_size()
+    for x in range(w):
+        for y in range(h):
+            r, g, b, a = out.get_at((x, y))
+            if a and (r + g + b) <= max_rgb_sum:
+                out.set_at((x, y), (0, 0, 0, 0))
+    return out
+
+
 def knockout_color(image, key, threshold=36, fade=22):
     """Remove a chroma key by writing alpha. Colorkey is ignored on SRCALPHA."""
+    image = _ensure_rgba(image)
     if np is None:
-        return image
+        key = tuple(key)[:3]
+        if key == (0, 0, 0):
+            return _knockout_black_fallback(image, max_rgb_sum=max(0, threshold // 3))
+        keyed = image.copy()
+        keyed.set_colorkey(key)
+        out = pygame.Surface(image.get_size(), pygame.SRCALPHA)
+        out.blit(keyed, (0, 0))
+        return out
     image, rgb, alpha = _rgba(image)
     key = np.array(key, dtype=np.int16)
     dist = np.abs(rgb - key).sum(axis=2)
@@ -107,8 +144,10 @@ def knockout_player_matte(image, chroma_min=10, luma_core=48, luma_keep=12):
     non-matte neighbors so dark suit/shoe pixels stay, while true black (and
     disconnected JPEG crumbs) become transparent. Kept RGB is never altered.
     """
+    image = _ensure_rgba(image)
     if np is None:
-        return image
+        # Exact black only — preserves navy suit / hair / shoes on web.
+        return _knockout_black_fallback(image, max_rgb_sum=0)
     image, rgb, alpha = _rgba(image)
     luma = rgb[:, :, 0].astype(np.int32) + rgb[:, :, 1] + rgb[:, :, 2]
     chroma = rgb.max(axis=2) - rgb.min(axis=2)
@@ -231,33 +270,24 @@ def _largest_opaque_mask(opaque):
     return labels == best
 
 
-def crop_main_content(image, pad=2, alpha_threshold=40):
+def crop_main_content(image, pad=0, alpha_threshold=40):
     """
     Keep the largest opaque 2D blob, then tight content bbox + pad.
 
     Neighbor-frame bleed (suitcase wheels, jacket slivers) is usually a
     separate connected component inside an equal-width/valley cell; discarding
     everything but the main sprite removes it before scale-up.
-    """
-    if IS_WEB or np is None:
-        return trim_alpha(image, pad=pad)
-    alpha = pygame.surfarray.array_alpha(image).astype(np.uint8)
-    rgb = pygame.surfarray.array3d(image)
-    opaque = alpha > alpha_threshold
-    if not np.any(opaque):
-        return trim_alpha(image, pad=pad)
 
-    keep = _largest_opaque_mask(opaque)
-    out = pygame.Surface(image.get_size(), pygame.SRCALPHA)
-    out_rgb = np.zeros_like(rgb)
-    out_a = np.zeros_like(alpha)
-    out_rgb[keep] = rgb[keep]
-    out_a[keep] = alpha[keep]
-    pygame.surfarray.blit_array(out, out_rgb)
-    px = pygame.surfarray.pixels_alpha(out)
-    px[:] = out_a
-    del px
-    return trim_alpha(out, pad=pad)
+    Uses pygame.mask so web (no numpy) still drops bleed shards.
+    """
+    mask = pygame.mask.from_surface(image, threshold=alpha_threshold)
+    if mask.count() == 0:
+        return trim_alpha(image, pad=pad)
+    keep = mask.connected_component()
+    if keep.count() == 0:
+        return trim_alpha(image, pad=pad)
+    cleaned = keep.to_surface(setsurface=image, unsetcolor=(0, 0, 0, 0))
+    return trim_alpha(cleaned, pad=pad)
 
 
 def scale_nearest(image, size):
@@ -408,18 +438,18 @@ def slice_row_blobs(sheet, count, y=0, alpha_threshold=40, merge_gap=3):
     frame_h = sheet_h - y
     if np is None:
         frame_w = max(1, sheet_w // count)
-        return slice_row(sheet, count, frame_w, frame_h, y=y, inset=4)
+        return slice_row(sheet, count, frame_w, frame_h, y=y, inset=6)
     runs = _opaque_column_runs(sheet, alpha_threshold=alpha_threshold, merge_gap=merge_gap)
     if len(runs) == count:
-        return _blit_x_spans(sheet, runs, y, frame_h, inset=1)
+        return _blit_x_spans(sheet, runs, y, frame_h, inset=2)
     valley = _valley_frame_bounds(
         sheet, count, alpha_threshold=alpha_threshold
     )
     if len(valley) == count:
         # Inset so valley contact pixels shared by neighbors are discarded.
-        return _blit_x_spans(sheet, valley, y, frame_h, inset=3)
+        return _blit_x_spans(sheet, valley, y, frame_h, inset=4)
     frame_w = max(1, sheet_w // count)
-    return slice_row(sheet, count, frame_w, frame_h, y=y, inset=4)
+    return slice_row(sheet, count, frame_w, frame_h, y=y, inset=6)
 
 
 def load_player_sheet(path, preserve_dark=False):
@@ -428,7 +458,7 @@ def load_player_sheet(path, preserve_dark=False):
     Sheet layout: idle, run1-4, crouch, jump, jump2, dead.
     preserve_dark keeps navy/hair/shoe pixels that a black chroma-key would eat.
     """
-    sheet = load_image(path, alpha=True)
+    sheet = _ensure_rgba(load_image(path, alpha=True))
     if preserve_dark:
         sheet = knockout_player_matte(sheet)
         sheet = drop_specks(sheet)
@@ -449,7 +479,8 @@ def load_player_sheet(path, preserve_dark=False):
     ]
     frames = {}
     for name, frame in zip(names, small):
-        frame = crop_main_content(frame, pad=2)
+        # pad=0: closer crop — less neighbor-frame bleed after half-res + quantize.
+        frame = crop_main_content(frame, pad=0)
         frame = fit_box_bottom(frame, (PLAYER_W, PLAYER_H))
         frames[name] = add_outline(frame, (42, 28, 22))
     return frames
@@ -704,25 +735,17 @@ class Assets:
         # Pre-trimmed ask-helper banner (Graddie + white text panel).
         self.ask_graddie = load_image("img/future_run/ask_graddie.png", alpha=True)
 
-        # World-specific full-sky backdrops (tiled horizontally with parallax).
+        # World-specific skyline panoramas: scale to GROUND_TOP, keep aspect.
+        # Drawn as a single scrolling strip (not tiled) — art edges do not match.
+        # Web half-res ~2.4k×768; World may H-stretch slightly if level is longer.
         self.backdrops = {}
-        bg_h = GROUND_TOP
         for key, path in (
             ("world1", "img/future_run/bg_world1.png"),
             ("world2", "img/future_run/bg_world2.png"),
             ("world3", "img/future_run/bg_world3.png"),
             ("world4", "img/future_run/bg_world4.png"),
         ):
-            raw = load_image(path, alpha=True)
-            bg_w = max(1, int(raw.get_width() * bg_h / max(1, raw.get_height())))
-            # Web: keep tile surfaces small, but never squash — crop a
-            # source strip so scaled width/height match the art aspect.
-            if IS_WEB and bg_w > LOGICAL_W:
-                src_h = raw.get_height()
-                src_w = max(1, int(raw.get_width() * LOGICAL_W / bg_w))
-                raw = raw.subsurface((0, 0, src_w, src_h)).copy()
-                bg_w = LOGICAL_W
-            self.backdrops[key] = scale_nearest(raw, (bg_w, bg_h))
+            self.backdrops[key] = fit_height(load_image(path, alpha=True), GROUND_TOP)
 
         if not os.path.isfile(_FONT_PATH):
             raise FileNotFoundError("Missing UI font: {}".format(_FONT_PATH))

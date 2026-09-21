@@ -52,6 +52,8 @@ _QUIZ_TITLE_SIZE = S(36)
 _QUIZ_PROMPT_SIZE = S(28)
 _QUIZ_OPTION_SIZE = S(26)
 _QUIZ_HINT_SIZE = S(18)
+# Extra gap between wrapped lines (prompt, options, feedback).
+_QUIZ_LINE_GAP = S(8)
 # Ask-Graddie banner: text lives in the white panel right of the character.
 ASK_GRADDIE_TEXT_LEFT = 0.29
 ASK_GRADDIE_TEXT_RIGHT = 0.05
@@ -75,7 +77,9 @@ def quiz_layout(assets, quiz, has_helper=False):
 
     title_h = title_font.size(quiz["title"])[1]
     prompt_lines = wrap_text(prompt_font, quiz["prompt"], text_w)
-    prompt_h = sum(prompt_font.size(line)[1] + S(4) for line in prompt_lines)
+    prompt_h = sum(prompt_font.size(line)[1] for line in prompt_lines)
+    if len(prompt_lines) > 1:
+        prompt_h += _QUIZ_LINE_GAP * (len(prompt_lines) - 1)
     header_content_h = title_h + S(12) + prompt_h
     # Vertically center title+prompt inside cream header.
     header_text_top = panel_y + max(S(16), (header_h - header_content_h) // 2)
@@ -231,13 +235,16 @@ class Button:
         area = self._label_area()
         wrap_pad = S(16) if (self.text_inset_left or self.text_inset_right) else S(48)
         lines = wrap_text(font, self.text, max(1, area.w - wrap_pad))
-        total_h = sum(font.size(line)[1] for line in lines)
+        line_gap = _QUIZ_LINE_GAP if len(lines) > 1 else 0
+        total_h = sum(font.size(line)[1] for line in lines) + line_gap * (
+            len(lines) - 1
+        )
         y = area.centery - total_h // 2
         color = self._label_color()
         for line in lines:
             label = font.render(line, True, color)
             surf.blit(label, (area.centerx - label.get_width() // 2, y))
-            y += label.get_height()
+            y += label.get_height() + line_gap
 
     def hit(self, pos):
         return self.rect.collidepoint(pos)
@@ -484,7 +491,7 @@ class Screens:
         for line in layout["prompt_lines"]:
             img = layout["prompt_font"].render(line, True, INK)
             surf.blit(img, ((LOGICAL_W - img.get_width()) // 2, y))
-            y += img.get_height() + S(4)
+            y += img.get_height() + _QUIZ_LINE_GAP
 
         option_font = layout["option_font"]
         hint_font = layout["hint_font"]
@@ -518,7 +525,8 @@ class Screens:
             inner_w = min(text_w, max_inner)
             lines = wrap_text(option_font, feedback, inner_w)
             line_h = option_font.get_height()
-            total_h = line_h * len(lines)
+            line_gap = _QUIZ_LINE_GAP if len(lines) > 1 else 0
+            total_h = line_h * len(lines) + line_gap * (len(lines) - 1)
             max_line_w = max(option_font.size(line)[0] for line in lines)
             msg_w = max_line_w + 2 * pad_x
             msg_h = total_h + 2 * pad_y
@@ -531,4 +539,4 @@ class Screens:
             for line in lines:
                 img = option_font.render(line, True, INK)
                 surf.blit(img, (msg_x + (msg_w - img.get_width()) // 2, fy))
-                fy += line_h
+                fy += line_h + line_gap
