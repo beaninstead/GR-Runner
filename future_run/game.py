@@ -35,7 +35,17 @@ from future_run.ui import (
     quiz_feedback_message_rect,
     quiz_layout,
 )
-from future_run.web import IS_WEB, debug_hotkeys_allowed, open_url
+from future_run.web import (
+    IS_WEB,
+    consume_nickname_html_enter,
+    consume_nickname_html_escape,
+    debug_hotkeys_allowed,
+    focus_nickname_html_input,
+    hide_nickname_html_input,
+    open_url,
+    poll_nickname_html_input,
+    show_nickname_html_input,
+)
 from future_run.world import World
 
 
@@ -324,6 +334,9 @@ class FutureRun:
         if self._text_input_active:
             return
         self._text_input_active = True
+        if IS_WEB:
+            # Mobile Safari/Chrome need a focused DOM <input> for soft keyboard.
+            show_nickname_html_input(self.win_nickname or "")
         try:
             pygame.key.start_text_input()
         except Exception:
@@ -333,10 +346,27 @@ class FutureRun:
         if not self._text_input_active:
             return
         self._text_input_active = False
+        if IS_WEB:
+            hide_nickname_html_input()
         try:
             pygame.key.stop_text_input()
         except Exception:
             pass
+
+    def _sync_web_nickname_input(self):
+        """Pull HTML input value / Enter / Escape into win nickname state."""
+        if not (IS_WEB and self._text_input_active and self.win_mode == "nickname"):
+            return
+        val = poll_nickname_html_input()
+        if val is not None and val != self.win_nickname:
+            self.win_nickname = val
+            self.win_status = ""
+        if consume_nickname_html_enter():
+            self._submit_to_leaderboard()
+            return
+        if consume_nickname_html_escape():
+            self.win_mode = "stats"
+            self._stop_text_input()
 
     def _open_nickname(self):
         self.win_mode = "nickname"
@@ -403,8 +433,13 @@ class FutureRun:
             if self.win_mode == "stats" and self.screens.submit_btn.hit(pos):
                 self._open_nickname()
                 return
-            if self.win_mode == "nickname" and self.screens.confirm_nick_btn.hit(pos):
-                self._submit_to_leaderboard()
+            if self.win_mode == "nickname":
+                if self.screens.confirm_nick_btn.hit(pos):
+                    self._submit_to_leaderboard()
+                    return
+                # Re-focus HTML input so the soft keyboard can reopen after blur.
+                if IS_WEB:
+                    focus_nickname_html_input()
                 return
             if self.win_mode == "board":
                 if self.screens.board_back_btn.hit(pos):
@@ -416,6 +451,18 @@ class FutureRun:
             return
 
         if self.win_mode == "nickname":
+            # On web the HTML <input> is the source of truth (avoids double chars
+            # from TEXTINPUT + value poll). Desktop still uses pygame IME events.
+            if IS_WEB and self._text_input_active:
+                if event.type == pygame.KEYDOWN and event.key in (
+                    pygame.K_RETURN,
+                    pygame.K_KP_ENTER,
+                ):
+                    self._submit_to_leaderboard()
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    self.win_mode = "stats"
+                    self._stop_text_input()
+                return
             if event.type == pygame.TEXTINPUT:
                 ch = event.text
                 if ch and len(self.win_nickname) < 16:
@@ -797,6 +844,8 @@ class FutureRun:
         return self._logical_pos(pos)
 
     def update(self, dt=1.0):
+        if self.state == "win":
+            self._sync_web_nickname_input()
         if self.state == "intro":
             self.intro_timer -= dt
             if self.intro_timer <= 0:
