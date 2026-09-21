@@ -1,14 +1,14 @@
 import pygame
 
-from future_run.constants import LOGICAL_H, LOGICAL_W, WHITE
+from future_run.constants import LOGICAL_H, LOGICAL_W, S, WHITE
 
 
 class TouchControls:
     """On-screen left / right / jump pad for phones and tablets."""
 
-    LEFT = pygame.Rect(36, LOGICAL_H - 252, 200, 200)
-    RIGHT = pygame.Rect(260, LOGICAL_H - 252, 200, 200)
-    JUMP = pygame.Rect(LOGICAL_W - 236, LOGICAL_H - 292, 200, 240)
+    LEFT = pygame.Rect(S(36), LOGICAL_H - S(252), S(200), S(200))
+    RIGHT = pygame.Rect(S(260), LOGICAL_H - S(252), S(200), S(200))
+    JUMP = pygame.Rect(LOGICAL_W - S(236), LOGICAL_H - S(292), S(200), S(240))
 
     def __init__(self):
         self.left = False
@@ -89,7 +89,7 @@ class TouchControls:
         fill = (255, 255, 255, 92) if active else (12, 8, 28, 110)
         rim = (255, 255, 255, 200) if active else (255, 255, 255, 120)
         pygame.draw.ellipse(pad, fill, pad.get_rect())
-        pygame.draw.ellipse(pad, rim, pad.get_rect(), 5)
+        pygame.draw.ellipse(pad, rim, pad.get_rect(), max(1, S(5)))
         surf.blit(pad, rect.topleft)
         text = font.render(label, True, WHITE)
         surf.blit(

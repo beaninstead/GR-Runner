@@ -11,6 +11,10 @@ Mobile-first pygame game, playable on the web via [pygbag](https://pygame-web.gi
 
 Hard-refresh after deploys (`Cmd+Shift+R` / clear site data) so `index.html` is not cached.
 
+On web/mobile the game renders at **540×960** (half of the 1080×1920 design)
+and CSS letterboxes up — fewer pixels + cheaper presents for better phone FPS.
+Desktop still uses full 1080×1920.
+
 ## itch.io HTML5
 
 Upload **`future-run-itch.zip`** (or rebuild it from `web_app/build/web` with only):

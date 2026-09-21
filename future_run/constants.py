@@ -1,8 +1,26 @@
-LOGICAL_W = 1080
-LOGICAL_H = 1920
+from future_run.web import IS_WEB
+
+# Full design resolution is 1080×1920. On web/mobile, render at half so
+# pygbag fills ~¼ the pixels and avoids a per-frame 1080p smoothscale.
+DESIGN_W = 1080
+DESIGN_H = 1920
+RENDER_SCALE = 0.5 if IS_WEB else 1.0
+
+
+def S(n):
+    """Map a 1080p-design value to the active render scale."""
+    if RENDER_SCALE == 1.0:
+        return n
+    if isinstance(n, float):
+        return n * RENDER_SCALE
+    return int(round(n * RENDER_SCALE))
+
+
+LOGICAL_W = S(DESIGN_W)
+LOGICAL_H = S(DESIGN_H)
 FPS = 60
 # Portrait aspect (width / height) for web canvas CSS letterboxing.
-ASPECT = LOGICAL_W / LOGICAL_H
+ASPECT = DESIGN_W / DESIGN_H
 
 
 def frame_scale(dt_seconds):
@@ -32,17 +50,28 @@ BOOK_BLUE = (29, 78, 216)
 BOOK_GREEN = (21, 128, 61)
 OUTLINE = (28, 22, 36)
 
-TILE = 96
+TILE = S(96)
 GROUND_ROW = 16
 GROUND_TOP = GROUND_ROW * TILE
 # World pickup / sprite box (was TILE; doubled for clearer presence).
-GRADDIE_SIZE = 2 * TILE  # 192
-PLAYER_W, PLAYER_H = 160, 160
-GRAVITY = 1.35
-JUMP_VEL = -28.0
-MOVE_ACCEL = 1.05
-MOVE_MAX = 9.2
+GRADDIE_SIZE = 2 * TILE  # 192 design → scaled
+PLAYER_W, PLAYER_H = S(160), S(160)
+GRAVITY = S(1.35)
+JUMP_VEL = S(-28.0)
+MOVE_ACCEL = S(1.05)
+MOVE_MAX = S(9.2)
 FRICTION = 0.80
+# Terminal fall speed and foot-snap slop (design px).
+FALL_MAX = S(28)
+FOOT_SLOP_MIN = S(40)
+FOOT_SLOP_PAD = S(12)
+FOOT_INSET = S(8)
+WORLD_EDGE = S(40)
+PIT_BELOW = S(80)
+PIT_NEAR = S(20)
+# Idle velocity cutoff (design px/frame).
+VEL_STOP = S(0.25)
+VEL_RUN = S(0.4)
 
 START_LIVES = 3
 COIN_VALUE = 10
@@ -50,6 +79,6 @@ INVINCIBLE_FRAMES = 70
 # World 4 reward after third pit — lasts the rest of the level at 60 FPS.
 WORLD4_INVINCIBLE_FRAMES = 60 * 60 * 20  # ~20 minutes
 SKILL_BOOST_FRAMES = 60 * 8  # ~8 seconds of super-speed
-SKILL_BOOST_MAX = 14.5
+SKILL_BOOST_MAX = S(14.5)
 WORLD_INTRO_FRAMES = 90
 CTA_URL = "https://www.gradright.com"

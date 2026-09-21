@@ -1,6 +1,10 @@
 import pygame
 
 from future_run.constants import (
+    FALL_MAX,
+    FOOT_INSET,
+    FOOT_SLOP_MIN,
+    FOOT_SLOP_PAD,
     FRICTION,
     GRAVITY,
     GROUND_TOP,
@@ -8,10 +12,15 @@ from future_run.constants import (
     JUMP_VEL,
     MOVE_ACCEL,
     MOVE_MAX,
+    PIT_BELOW,
+    PIT_NEAR,
     PLAYER_H,
     PLAYER_W,
     SKILL_BOOST_FRAMES,
     SKILL_BOOST_MAX,
+    VEL_RUN,
+    VEL_STOP,
+    WORLD_EDGE,
 )
 
 
@@ -59,7 +68,7 @@ class Player:
             self.vel_x = max(-speed_cap, min(speed_cap, self.vel_x))
         else:
             self.vel_x *= FRICTION ** dt
-            if abs(self.vel_x) < 0.25:
+            if abs(self.vel_x) < VEL_STOP:
                 self.vel_x = 0
 
     def jump(self):
@@ -77,19 +86,19 @@ class Player:
 
     def physics(self, ground_spans, platforms=None, dt=1.0):
         self.vel_y += GRAVITY * dt
-        if self.vel_y > 28:
-            self.vel_y = 28
+        if self.vel_y > FALL_MAX:
+            self.vel_y = FALL_MAX
 
         self.rect.x += int(self.vel_x * dt)
-        if self.rect.x < 40:
-            self.rect.x = 40
+        if self.rect.x < WORLD_EDGE:
+            self.rect.x = WORLD_EDGE
             self.vel_x = 0
 
         self.on_ground = False
         self.rect.y += int(self.vel_y * dt)
-        slop = max(40, abs(self.vel_y * dt) + 12)
+        slop = max(FOOT_SLOP_MIN, abs(self.vel_y * dt) + FOOT_SLOP_PAD)
         for x0, x1, top in ground_spans:
-            if self.rect.right > x0 + 8 and self.rect.left < x1 - 8:
+            if self.rect.right > x0 + FOOT_INSET and self.rect.left < x1 - FOOT_INSET:
                 if self.vel_y >= 0 and self.rect.bottom >= top and self.rect.bottom <= top + slop:
                     self.rect.bottom = top
                     self.vel_y = 0
@@ -110,7 +119,7 @@ class Player:
             self.skill_boost = max(0.0, self.skill_boost - dt)
 
         self.timer += dt
-        if abs(self.vel_x) > 0.4 and self.on_ground:
+        if abs(self.vel_x) > VEL_RUN and self.on_ground:
             if int(self.timer) % 6 == 0 and int(self.timer - dt) % 6 != 0:
                 self.anim = (self.anim + 1) % 4
 
@@ -123,14 +132,14 @@ class Player:
         self.invincible = max(self.invincible, INVINCIBLE_FRAMES)
 
     def fell_in_pit(self, ground_spans):
-        if self.rect.top > GROUND_TOP + 80:
+        if self.rect.top > GROUND_TOP + PIT_BELOW:
             return True
         over_ground = False
         for x0, x1, top in ground_spans:
             if self.rect.centerx >= x0 and self.rect.centerx <= x1:
                 over_ground = True
                 break
-        return (not over_ground) and self.rect.top > GROUND_TOP - 20
+        return (not over_ground) and self.rect.top > GROUND_TOP - PIT_NEAR
 
     def image(self):
         if self.ducking and self.on_ground:
@@ -139,7 +148,7 @@ class Player:
             frame = self.frames["jump"] if self.vel_y < 0 else self.frames.get(
                 "jump2", self.frames["jump"]
             )
-        elif abs(self.vel_x) > 0.4:
+        elif abs(self.vel_x) > VEL_RUN:
             frame = self.frames[f"run{self.anim + 1}"]
         else:
             frame = self.frames["idle"]

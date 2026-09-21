@@ -9,6 +9,8 @@ from future_run.constants import (
     INK,
     LOGICAL_H,
     LOGICAL_W,
+    RENDER_SCALE,
+    S,
     TILE,
     WHITE,
 )
@@ -21,6 +23,8 @@ NEWSPAPER_HAZARD_HINT = FALSE_INFO_HINT
 MONEY_TRAP_HAZARD_HINT = "Money Trap! Bad ROI"
 SKILL_BARRIER_HINT = "Skill Barrier!"
 AGENT_HINT = "Agent appeared"
+# Floating labels above hazards / pickups / NPCs (was 15–16).
+OBJECT_HINT_FONT_SIZE = S(22)
 
 
 def _tx(col):
@@ -103,6 +107,24 @@ class BookPile:
         silhouette = mask.to_surface(
             setcolor=(*self._GLOW, 255), unsetcolor=(0, 0, 0, 0)
         ).convert_alpha()
+        # Web: single cheap halo; desktop: feathered soft glow.
+        if RENDER_SCALE < 1.0:
+            pad = S(12)
+            outer = pygame.Surface(
+                (img.get_width() + pad * 2, img.get_height() + pad * 2),
+                pygame.SRCALPHA,
+            )
+            big = pygame.transform.scale(
+                silhouette,
+                (int(img.get_width() * 1.15), int(img.get_height() * 1.15)),
+            )
+            bx = (outer.get_width() - big.get_width()) // 2
+            by = (outer.get_height() - big.get_height()) // 2
+            layer = big.copy()
+            layer.fill((255, 255, 255, 70), special_flags=pygame.BLEND_RGBA_MULT)
+            outer.blit(layer, (bx, by))
+            self._glow_cache[key] = outer
+            return outer
         pad = 20
         outer = pygame.Surface(
             (img.get_width() + pad * 2, img.get_height() + pad * 2), pygame.SRCALPHA
@@ -134,27 +156,42 @@ class BookPile:
         img = self._current_image()
         x = self.rect.x - cam.x + (self.rect.w - img.get_width()) // 2
         y = self.rect.bottom - cam.y - img.get_height()
-        # Sine pulse: alpha + slight scale so the hazard reads as urgent.
-        wave = 0.5 + 0.5 * math.sin(self.timer * 0.12)
-        pulse_a = 0.38 + 0.62 * wave
-        pulse_s = 1.0 + 0.06 * wave
         glow = self._glow_for(img)
-        pulsed = glow.copy()
-        pulsed.fill(
-            (255, 255, 255, int(255 * pulse_a)),
-            special_flags=pygame.BLEND_RGBA_MULT,
-        )
-        if abs(pulse_s - 1.0) > 0.001:
-            nw = max(1, int(pulsed.get_width() * pulse_s))
-            nh = max(1, int(pulsed.get_height() * pulse_s))
-            pulsed = pygame.transform.smoothscale(pulsed, (nw, nh))
-        surf.blit(
-            pulsed,
-            (
-                x - (pulsed.get_width() - img.get_width()) // 2,
-                y - (pulsed.get_height() - img.get_height()) // 2,
-            ),
-        )
+        if RENDER_SCALE < 1.0:
+            # Skip per-frame pulse smoothscale on web.
+            glow_draw = glow.copy()
+            glow_draw.fill(
+                (255, 255, 255, 160),
+                special_flags=pygame.BLEND_RGBA_MULT,
+            )
+            surf.blit(
+                glow_draw,
+                (
+                    x - (glow_draw.get_width() - img.get_width()) // 2,
+                    y - (glow_draw.get_height() - img.get_height()) // 2,
+                ),
+            )
+        else:
+            # Sine pulse: alpha + slight scale so the hazard reads as urgent.
+            wave = 0.5 + 0.5 * math.sin(self.timer * 0.12)
+            pulse_a = 0.38 + 0.62 * wave
+            pulse_s = 1.0 + 0.06 * wave
+            pulsed = glow.copy()
+            pulsed.fill(
+                (255, 255, 255, int(255 * pulse_a)),
+                special_flags=pygame.BLEND_RGBA_MULT,
+            )
+            if abs(pulse_s - 1.0) > 0.001:
+                nw = max(1, int(pulsed.get_width() * pulse_s))
+                nh = max(1, int(pulsed.get_height() * pulse_s))
+                pulsed = pygame.transform.smoothscale(pulsed, (nw, nh))
+            surf.blit(
+                pulsed,
+                (
+                    x - (pulsed.get_width() - img.get_width()) // 2,
+                    y - (pulsed.get_height() - img.get_height()) // 2,
+                ),
+            )
         surf.blit(img, (x, y))
         if self._hint_lines:
             gap = 4
@@ -270,7 +307,7 @@ class GraddiePickup:
         (1, 14),  # jump peak
         (2, 10),  # soft land
     )
-    _LIFT = 48  # bounce height in px
+    _LIFT = S(48)  # bounce height in px
     _GLOW = (186, 140, 255)  # soft purple aura
 
     def __init__(self, x, y, frames, dialogue_box=None, font=None):
@@ -317,6 +354,23 @@ class GraddiePickup:
         silhouette = mask.to_surface(
             setcolor=(*self._GLOW, 255), unsetcolor=(0, 0, 0, 0)
         ).convert_alpha()
+        if RENDER_SCALE < 1.0:
+            pad = S(10)
+            outer = pygame.Surface(
+                (img.get_width() + pad * 2, img.get_height() + pad * 2),
+                pygame.SRCALPHA,
+            )
+            big = pygame.transform.scale(
+                silhouette,
+                (int(img.get_width() * 1.12), int(img.get_height() * 1.12)),
+            )
+            bx = (outer.get_width() - big.get_width()) // 2
+            by = (outer.get_height() - big.get_height()) // 2
+            layer = big.copy()
+            layer.fill((255, 255, 255, 55), special_flags=pygame.BLEND_RGBA_MULT)
+            outer.blit(layer, (bx, by))
+            self._glow_cache[key] = outer
+            return outer
         pad = 18
         outer = pygame.Surface(
             (img.get_width() + pad * 2, img.get_height() + pad * 2), pygame.SRCALPHA
@@ -506,7 +560,7 @@ class World:
             self.coins.append(Coin(col, gy - above, assets.coin_anim()))
 
         self.books = []
-        book_font = assets.font(15)
+        book_font = assets.font(OBJECT_HINT_FONT_SIZE)
         for item in self.cfg.get("books") or []:
             col, kind = item[0], item[1] if len(item) > 1 else "tall"
             if kind in ("newspaper", "false_info"):
@@ -548,7 +602,7 @@ class World:
                     _ty(gy - above),
                     _tx(left),
                     _tx(right),
-                    speed,
+                    S(speed),
                     assets.phones,
                 )
             )
@@ -571,7 +625,7 @@ class World:
                 FallingHazard(
                     _tx(col),
                     _ty(gy - above),
-                    speed,
+                    S(speed),
                     sprite,
                 )
             )
@@ -591,7 +645,7 @@ class World:
                         _tx(col),
                         GROUND_TOP - GRADDIE_SIZE,
                         assets.graddie,
-                        font=assets.font(16),  # ~30% larger than font_xs (12)
+                        font=assets.font(OBJECT_HINT_FONT_SIZE),
                     )
                 )
 
@@ -599,7 +653,9 @@ class World:
         for kind, col in self.cfg.get("npcs") or []:
             if kind == "agent":
                 self.npcs.append(
-                    AgentNpc(col, assets.agent, font=assets.font(16))
+                    AgentNpc(
+                        col, assets.agent, font=assets.font(OBJECT_HINT_FONT_SIZE)
+                    )
                 )
 
         self.triggers = []

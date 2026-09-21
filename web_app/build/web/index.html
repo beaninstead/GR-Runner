@@ -6,7 +6,7 @@ Loading Future Run from web_app archive
     Template Version : 0.9.3
     Python  : 3.12
     CDN URL : https://pygame-web.github.io/cdn/0.9.3/
-    Screen  : 1080x1920
+    Screen  : 540x960
     Title   : Future Run
     Folder  : web_app
     Authors : pgw
@@ -31,9 +31,13 @@ async def custom_site():
 
     def ui(msg):
         try:
-            platform.window.status.innerHTML = msg
-            platform.window.infobox.innerText = msg
-            platform.window.show_infobox()
+            # Prefer JS helper so load timers / phase stay in sync.
+            if hasattr(platform.window, "set_load_ui"):
+                platform.window.set_load_ui(msg)
+            else:
+                platform.window.status.innerHTML = msg
+                platform.window.infobox.innerText = msg
+                platform.window.show_infobox()
         except Exception:
             pass
 
@@ -96,7 +100,7 @@ async def custom_site():
 
         # now make a prompt
         msg  = "Tap to start Future Run"
-        platform.window.infobox.innerText = msg
+        ui(msg)
         print("\n"*4, f"    * Waiting for media user engagement. {msg} *" , "\n"*4)
 
         while not platform.window.MM.UME:
@@ -111,20 +115,34 @@ async def custom_site():
 
 
     def ui_callback(pkg):
+        # Status bar only — do not re-open the green infobox during pkg installs.
         try:
             platform.window.status.innerHTML = f"Loading {pkg}..."
-            platform.window.infobox.innerText = f"Loading {pkg}..."
-            platform.window.show_infobox()
         except Exception:
-            platform.window.infobox.innerText = f"installing {pkg}"
+            pass
+
+    # Hide load UI before main: shell.source never returns (pygame loop), so the
+    # old post-source hide never ran and the 25s "Still downloading" banner
+    # could reappear on top of a running game.
+    try:
+        platform.window.dismiss_load_ui()
+    except Exception:
+        try:
+            platform.window.transfer.hidden = true
+            platform.window.infobox.style.display = "none"
+        except Exception:
+            pass
 
     await shell.source(main, callback=ui_callback)
 
     # if you don't reach that step
     # your main.py has an infinite sync loop somewhere !
 
-    platform.window.transfer.hidden = true
-    platform.window.infobox.style.display = "none"
+    try:
+        platform.window.dismiss_load_ui()
+    except Exception:
+        platform.window.transfer.hidden = true
+        platform.window.infobox.style.display = "none"
     platform.window.config.gui_divider = 1
     platform.window.window_resize()
     print("default.tmpl: done")
@@ -177,8 +195,10 @@ asyncio.run( custom_site() )
 config = {
     xtermjs : "0" ,
     _sdl2 : "canvas",
-    user_canvas : 0,
-    user_canvas_managed : 0,
+    // Own CSS letterboxing ourselves — pygbag's window_canvas_adjust otherwise
+    // sets style width/height to the SDL buffer size (postage-stamp on mobile).
+    user_canvas : 1,
+    user_canvas_managed : 1,
     gui_divider : 0,
     ume_block : 0,
     can_close : 0,
@@ -188,11 +208,18 @@ config = {
     autorun : 0,
     PYBUILD : "3.12",
     fb_ar   :  0.5625,
-    fb_width : "1080",
-    fb_height : "1920"
+    fb_width : "540",
+    fb_height : "960"
 }
 
+// Load UI lifecycle: "download" → "loading" → "ready".
+// Timers must not re-show the green banner after the game is running.
+let __fr_load_phase = "download" // download | loading | ready
+let __fr_heartbeat = null
+let __fr_slow_hint = null
+
 function show_infobox() {
+    if (__fr_load_phase === "ready") return;
     infobox.style.display = "block";
 
     // Measure box
@@ -206,6 +233,31 @@ function show_infobox() {
     infobox.style.left = left + "px";
     infobox.style.top = top + "px";
 }
+
+function mark_load_past_download() {
+    if (__fr_load_phase === "download") __fr_load_phase = "loading"
+    if (__fr_heartbeat) {
+        try { clearInterval(__fr_heartbeat) } catch (e) {}
+        __fr_heartbeat = null
+    }
+    if (__fr_slow_hint) {
+        try { clearTimeout(__fr_slow_hint) } catch (e) {}
+        __fr_slow_hint = null
+    }
+}
+
+function dismiss_load_ui() {
+    __fr_load_phase = "ready"
+    mark_load_past_download()
+    try {
+        if (transfer) transfer.hidden = true
+    } catch (e) {}
+    try {
+        if (infobox) infobox.style.display = "none"
+    } catch (e) {}
+}
+window.dismiss_load_ui = dismiss_load_ui
+window.mark_load_past_download = mark_load_past_download
 
 </script>
 
@@ -271,22 +323,19 @@ function show_infobox() {
         div.thick_border { border: 4px solid black; }
 
         /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
-        /* Portrait 1080x1920: size via JS letterbox (never stretch to fill landscape iframes). */
+        /* Portrait 540x960 (half-res web): size/position via JS letterbox (fitGameCanvas). */
         canvas.emscripten {
             border: 0px none;
             background-color: transparent;
-            width: auto;
-            height: auto;
-            max-width: 100vw;
-            max-height: 100dvh;
+            display: block;
             z-index: 5;
             touch-action: none;
             padding: 0;
             margin: 0;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+            position: fixed;
+            left: 0;
+            top: 0;
+            transform: none;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
         }
@@ -372,8 +421,8 @@ height="1px"
     </canvas>
 
     <canvas class="emscripten" id="canvas3d"
-width="1080px"
-height="1920px"
+width="540px"
+height="960px"
     oncontextmenu="event.preventDefault()" tabindex=1 hidden>
     </canvas>
 
@@ -442,15 +491,17 @@ frameborder="1"
         console.warn("TODO: panda3d canvas monitor", self, ecw, ech)
     }
 
-    // Game is authored at 1080x1920 (portrait). Itch/desktop often hosts a
+    // Game renders at 540x960 on web (half of 1080x1920 design). Itch/desktop often hosts a
     // landscape iframe; without this, CSS width/height:100% squashes sprites.
-    const GAME_AR = 1080 / 1920; // width / height
+    const GAME_AR = 540 / 960; // width / height
 
     function fitGameCanvas() {
         const c = document.getElementById("canvas");
         if (!c) return;
-        const vw = window.innerWidth || document.documentElement.clientWidth || 1;
-        const vh = window.innerHeight || document.documentElement.clientHeight || 1;
+        // Prefer visualViewport on mobile (accounts for browser chrome).
+        const vv = window.visualViewport;
+        const vw = Math.max(1, Math.floor((vv && vv.width) || window.innerWidth || document.documentElement.clientWidth || 1));
+        const vh = Math.max(1, Math.floor((vv && vv.height) || window.innerHeight || document.documentElement.clientHeight || 1));
         let w, h;
         if (vw / vh > GAME_AR) {
             // Viewport wider than portrait → pillarbox (limit by height).
@@ -461,28 +512,65 @@ frameborder="1"
             w = vw;
             h = Math.max(1, Math.round(vw / GAME_AR));
         }
-        c.style.width = w + "px";
-        c.style.height = h + "px";
-        c.style.maxWidth = "100vw";
-        c.style.maxHeight = "100dvh";
+        const left = Math.max(0, Math.round((vw - w) / 2 + ((vv && vv.offsetLeft) || 0)));
+        const top = Math.max(0, Math.round((vh - h) / 2 + ((vv && vv.offsetTop) || 0)));
+        // !important so SDL/pygbag inline styles cannot shrink us back to buffer px.
+        const set = (prop, val) => c.style.setProperty(prop, val, "important");
+        set("position", "fixed");
+        set("left", left + "px");
+        set("top", top + "px");
+        set("right", "auto");
+        set("bottom", "auto");
+        set("margin", "0");
+        set("transform", "none");
+        set("width", w + "px");
+        set("height", h + "px");
+        set("max-width", "none");
+        set("max-height", "none");
     }
 
-    window.addEventListener("resize", fitGameCanvas);
-    window.addEventListener("orientationchange", () => setTimeout(fitGameCanvas, 50));
+    function claimCanvasLayout() {
+        try {
+            if (window.config) {
+                window.config.user_canvas = 1;
+                window.config.user_canvas_managed = 1;
+            }
+        } catch (e) {}
+        fitGameCanvas();
+    }
+
+    window.addEventListener("resize", claimCanvasLayout);
+    window.addEventListener("orientationchange", () => setTimeout(claimCanvasLayout, 50));
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", claimCanvasLayout);
+        window.visualViewport.addEventListener("scroll", claimCanvasLayout);
+    }
     // Initial + delayed fits (canvas buffer size set after SDL init).
-    fitGameCanvas();
-    setTimeout(fitGameCanvas, 0);
-    setTimeout(fitGameCanvas, 250);
-    setTimeout(fitGameCanvas, 1000);
-    setInterval(fitGameCanvas, 1500);
+    claimCanvasLayout();
+    setTimeout(claimCanvasLayout, 0);
+    setTimeout(claimCanvasLayout, 100);
+    setTimeout(claimCanvasLayout, 250);
+    setTimeout(claimCanvasLayout, 1000);
+    setInterval(claimCanvasLayout, 1500);
 
     function set_load_ui(msg) {
+        if (__fr_load_phase === "ready") return
         if (status) status.innerHTML = msg
         if (infobox) {
             infobox.innerText = msg
             show_infobox()
         }
+        const s = String(msg || "")
+        if (
+            s.indexOf("Unpacking") >= 0 ||
+            s.indexOf("Starting Python") >= 0 ||
+            s.indexOf("Tap to start") >= 0 ||
+            s.indexOf("Loading ") === 0
+        ) {
+            mark_load_past_download()
+        }
     }
+    window.set_load_ui = set_load_ui
 
     function on_itch_host() {
         return (location.hostname || "").indexOf(".itch.zone") > 0
@@ -519,6 +607,9 @@ frameborder="1"
     function hook_progress_mirror() {
         // Mirror pygbag/emscripten setStatus into the centered infobox so mobile
         // users see % / phase instead of a static "Downloading..." bar.
+        if (window.__fr_progress_hooked) return
+        window.__fr_progress_hooked = true
+
         const start = Date.now()
         let lastPct = -1
         let sawPct = false
@@ -528,7 +619,8 @@ frameborder="1"
                 cur.indexOf("FAILED:") === 0 ||
                 cur.indexOf("Unpacking") >= 0 ||
                 cur.indexOf("Starting Python") >= 0 ||
-                cur.indexOf("Tap to start") >= 0
+                cur.indexOf("Tap to start") >= 0 ||
+                cur.indexOf("Loading ") === 0
             )
         }
 
@@ -542,7 +634,11 @@ frameborder="1"
                 const orig = Module.setStatus.bind(Module)
                 Module.setStatus = function(text) {
                     orig(text)
-                    if (!text || text === "hide") return
+                    if (!text || text === "hide") {
+                        // Emscripten signals download UI complete — never re-show.
+                        if (text === "hide") dismiss_load_ui()
+                        return
+                    }
                     const m = String(text).match(/([^(]+)\((\d+(?:\.\d+)?)\/(\d+)\)/)
                     if (m) {
                         const pct = Math.min(100, Math.round((parseFloat(m[2]) / parseFloat(m[3])) * 100))
@@ -555,6 +651,7 @@ frameborder="1"
                             }
                         } catch (e) {}
                         set_load_ui(m[1].trim() + " " + pct + "%")
+                        if (pct >= 100) mark_load_past_download()
                     } else {
                         set_load_ui(String(text))
                     }
@@ -567,12 +664,16 @@ frameborder="1"
         }, 200)
 
         // Heartbeat so iframe embeds never look frozen before % arrives.
-        const heartbeat = setInterval(() => {
+        __fr_heartbeat = setInterval(() => {
             try {
+                if (__fr_load_phase !== "download") {
+                    mark_load_past_download()
+                    return
+                }
                 const elapsed = Math.round((Date.now() - start) / 1000)
                 const cur = (infobox && infobox.innerText) || ""
                 if (doneish(cur) || cur.indexOf("Tap to start") >= 0) {
-                    clearInterval(heartbeat)
+                    mark_load_past_download()
                     return
                 }
                 if (sawPct || cur.indexOf("%") >= 0) return
@@ -584,11 +685,17 @@ frameborder="1"
         }, 2000)
 
         // If CDN/runtime never progresses, surface a useful hint (not a silent hang).
-        setTimeout(() => {
+        // Only once, and only while still in the cold-download phase.
+        __fr_slow_hint = setTimeout(() => {
+            __fr_slow_hint = null
             try {
+                if (__fr_load_phase !== "download") return
                 const elapsed = Math.round((Date.now() - start) / 1000)
                 const cur = (infobox && infobox.innerText) || ""
-                if (doneish(cur) || cur.indexOf("%") >= 0) return
+                if (doneish(cur) || sawPct || cur.indexOf("%") >= 0) {
+                    mark_load_past_download()
+                    return
+                }
                 if (window.crossOriginIsolated) {
                     set_load_ui(
                         "Still loading after " + elapsed +
@@ -617,18 +724,26 @@ frameborder="1"
         box.hidden =  debug_hidden
 
         // Hook after pygbag defines window_resize so SDL resizes keep portrait letterbox.
+        // Note: pygbag's addEventListener('resize', window_resize) captured the original
+        // function; reassigning window.window_resize alone is not enough — also claim
+        // user_canvas_managed and re-fit after pygbag's internal 100ms setTimeout.
         if (!window.__fr_resize_hooked) {
             const prev = window.window_resize
             window.window_resize = function () {
                 try {
+                    if (window.config) {
+                        window.config.user_canvas = 1
+                        window.config.user_canvas_managed = 1
+                    }
                     if (typeof prev === "function") prev.apply(this, arguments)
                 } finally {
-                    fitGameCanvas()
+                    claimCanvasLayout()
+                    setTimeout(claimCanvasLayout, 120)
                 }
             }
             window.__fr_resize_hooked = true
         }
-        fitGameCanvas()
+        claimCanvasLayout()
 
         const archive = expected_archive()
         set_load_ui("Connecting to pygame-web CDN…")
@@ -654,7 +769,8 @@ frameborder="1"
     function custom_postrun(){
         // python main and no VFS filesystem yet.
         console.log(__FILE__, "custom_postrun")
-        fitGameCanvas()
+        claimCanvasLayout()
+        setTimeout(claimCanvasLayout, 120)
     }
 
     function debug() {

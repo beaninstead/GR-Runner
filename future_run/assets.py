@@ -16,6 +16,7 @@ from future_run.constants import (
     OUTLINE,
     PLAYER_H,
     PLAYER_W,
+    S,
     TILE,
     WHITE,
 )
@@ -578,10 +579,10 @@ class Assets:
         self.graddie = [fit_box_bottom(frame, box) for frame in raw_graddie]
 
         self.logo_white = fit_width(
-            load_image("img/brand/gr_logo_white.png", colorkey=(0, 0, 0)), 720
+            load_image("img/brand/gr_logo_white.png", colorkey=(0, 0, 0)), S(720)
         )
         self.logo_color = fit_width(
-            load_image("img/brand/gr_logo_color.png", colorkey=(0, 0, 0)), 720
+            load_image("img/brand/gr_logo_color.png", colorkey=(0, 0, 0)), S(720)
         )
 
         sky = load_image("img/future_run/pack_sky.png", alpha=True)
@@ -650,7 +651,7 @@ class Assets:
         title = load_image("img/future_run/pack_title.png", alpha=True)
         title = knockout_color(title, (0, 0, 0), threshold=24, fade=10)
         title = knockout_edge_dark(title, luma=12)
-        self.title = fit_width(trim_alpha(title, pad=4), 520)
+        self.title = fit_width(trim_alpha(title, pad=4), S(520))
 
         self.btn_start = clean_button("img/future_run/pack_btn_start.png")
         self.btn_retry = clean_button("img/future_run/pack_btn_retry.png")
@@ -665,7 +666,7 @@ class Assets:
                     fade=8,
                 )
             ),
-            (80, 80),
+            (S(80), S(80)),
         )
         self.hud_coin = scale_nearest(
             trim_alpha(
@@ -676,7 +677,7 @@ class Assets:
                     fade=8,
                 )
             ),
-            (80, 80),
+            (S(80), S(80)),
         )
         self.win_panel = load_image("img/future_run/pack_win_panel.png", alpha=True)
         self.game_over_panel = load_image("img/future_run/pack_game_over_panel.png", alpha=True)
@@ -714,8 +715,13 @@ class Assets:
         ):
             raw = load_image(path, alpha=True)
             bg_w = max(1, int(raw.get_width() * bg_h / max(1, raw.get_height())))
-            if IS_WEB:
-                bg_w = min(bg_w, LOGICAL_W)
+            # Web: keep tile surfaces small, but never squash — crop a
+            # source strip so scaled width/height match the art aspect.
+            if IS_WEB and bg_w > LOGICAL_W:
+                src_h = raw.get_height()
+                src_w = max(1, int(raw.get_width() * LOGICAL_W / bg_w))
+                raw = raw.subsurface((0, 0, src_w, src_h)).copy()
+                bg_w = LOGICAL_W
             self.backdrops[key] = scale_nearest(raw, (bg_w, bg_h))
 
         if not os.path.isfile(_FONT_PATH):
@@ -723,11 +729,11 @@ class Assets:
         self.font_path = _FONT_PATH
         self._font_cache = {}
         # Press Start 2P is ~1.7× wider than VCR OSD Mono at the same px size.
-        self.font_xl = self.font(40)
-        self.font_lg = self.font(28)
-        self.font_md = self.font(22)
-        self.font_sm = self.font(16)
-        self.font_xs = self.font(12)
+        self.font_xl = self.font(S(40))
+        self.font_lg = self.font(S(28))
+        self.font_md = self.font(S(22))
+        self.font_sm = self.font(S(16))
+        self.font_xs = self.font(S(12))
 
     def font(self, size):
         """Return a cached pygame.font.Font for Press Start 2P at the given size."""

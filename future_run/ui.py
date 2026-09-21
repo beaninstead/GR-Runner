@@ -9,6 +9,8 @@ from future_run.constants import (
     PURPLE,
     PURPLE_DARK,
     PURPLE_SOFT,
+    RENDER_SCALE,
+    S,
     TILE,
     WHITE,
 )
@@ -46,19 +48,19 @@ _QUIZ_HEADER_RATIO = 0.314
 _QUIZ_PANEL_ASPECT = 691 / 1024  # native h/w
 _QUIZ_PANEL_HEIGHT_SCALE = 1.2  # +20% taller dialogue box
 # Quiz typography — sized to fill cream header + option buttons
-_QUIZ_TITLE_SIZE = 36
-_QUIZ_PROMPT_SIZE = 28
-_QUIZ_OPTION_SIZE = 26
-_QUIZ_HINT_SIZE = 18
+_QUIZ_TITLE_SIZE = S(36)
+_QUIZ_PROMPT_SIZE = S(28)
+_QUIZ_OPTION_SIZE = S(26)
+_QUIZ_HINT_SIZE = S(18)
 # Ask-Graddie banner: text lives in the white panel right of the character.
 ASK_GRADDIE_TEXT_LEFT = 0.29
 ASK_GRADDIE_TEXT_RIGHT = 0.05
-_ASK_GRADDIE_MAX_W = 380
+_ASK_GRADDIE_MAX_W = S(380)
 
 
 def quiz_layout(assets, quiz, has_helper=False):
     """Compute quiz panel + option button rects (vertically centered)."""
-    panel_w = 980
+    panel_w = S(980)
     panel_h = int(panel_w * _QUIZ_PANEL_ASPECT * _QUIZ_PANEL_HEIGHT_SCALE)
     panel_x = (LOGICAL_W - panel_w) // 2
     panel_y = (LOGICAL_H - panel_h) // 2
@@ -68,17 +70,17 @@ def quiz_layout(assets, quiz, has_helper=False):
     prompt_font = assets.font(_QUIZ_PROMPT_SIZE)
     option_font = assets.font(_QUIZ_OPTION_SIZE)
     hint_font = assets.font(_QUIZ_HINT_SIZE)
-    pad_x = 56
+    pad_x = S(56)
     text_w = panel_w - pad_x * 2
 
     title_h = title_font.size(quiz["title"])[1]
     prompt_lines = wrap_text(prompt_font, quiz["prompt"], text_w)
-    prompt_h = sum(prompt_font.size(line)[1] + 4 for line in prompt_lines)
-    header_content_h = title_h + 12 + prompt_h
+    prompt_h = sum(prompt_font.size(line)[1] + S(4) for line in prompt_lines)
+    header_content_h = title_h + S(12) + prompt_h
     # Vertically center title+prompt inside cream header.
-    header_text_top = panel_y + max(16, (header_h - header_content_h) // 2)
+    header_text_top = panel_y + max(S(16), (header_h - header_content_h) // 2)
 
-    opt_w = 860
+    opt_w = S(860)
     opt_x = (LOGICAL_W - opt_w) // 2
     n = len(quiz["choices"])
     ask = getattr(assets, "ask_graddie", None) if has_helper else None
@@ -87,25 +89,25 @@ def quiz_layout(assets, quiz, has_helper=False):
         aw, ah = ask.get_size()
         aspect = aw / float(max(1, ah))
         helper_w = min(_ASK_GRADDIE_MAX_W, opt_w)
-        helper_h = max(86, int(round(helper_w / aspect)))
-        helper_gap = 17
-        opt_h = 100
-        gap = 12
+        helper_h = max(S(86), int(round(helper_w / aspect)))
+        helper_gap = S(17)
+        opt_h = S(100)
+        gap = S(12)
     elif has_helper:
         helper_w = opt_w
-        helper_h = 96
-        helper_gap = 22
-        opt_h = 112
-        gap = 16
+        helper_h = S(96)
+        helper_gap = S(22)
+        opt_h = S(112)
+        gap = S(16)
     else:
         helper_w = 0
         helper_h = 0
         helper_gap = 0
-        opt_h = 120
-        gap = 22
+        opt_h = S(120)
+        gap = S(22)
 
-    body_top = panel_y + header_h + 28
-    body_bottom = panel_y + panel_h - 34
+    body_top = panel_y + header_h + S(28)
+    body_bottom = panel_y + panel_h - S(34)
     body_h = body_bottom - body_top
     options_block = n * opt_h + max(0, n - 1) * gap + (
         helper_gap + helper_h if has_helper else 0
@@ -113,16 +115,16 @@ def quiz_layout(assets, quiz, has_helper=False):
     # Keep the ask-graddie banner on-panel by shrinking height if needed.
     if ask is not None and options_block > body_h:
         avail = body_h - (n * opt_h + max(0, n - 1) * gap + helper_gap)
-        if avail >= 86:
+        if avail >= S(86):
             helper_h = avail
             helper_w = min(opt_w, int(round(helper_h * aspect)))
-            helper_h = max(86, int(round(helper_w / aspect)))
+            helper_h = max(S(86), int(round(helper_w / aspect)))
             options_block = n * opt_h + max(0, n - 1) * gap + helper_gap + helper_h
 
     y = body_top
     spare = body_h - options_block
     if spare > 0:
-        y = body_top + min(20, spare // 6)
+        y = body_top + min(S(20), spare // 6)
 
     choice_rects = []
     for _ in quiz["choices"]:
@@ -217,16 +219,17 @@ class Button:
             color = (16, 185, 129) if self.highlight or self.result == "correct" else self.color
             if self.result == "wrong":
                 color = (220, 60, 60)
-            pygame.draw.rect(surf, color, self.rect, border_radius=24)
+            radius = S(24)
+            pygame.draw.rect(surf, color, self.rect, border_radius=radius)
             pygame.draw.rect(
                 surf,
                 WHITE,
                 self.rect,
-                4 if (self.highlight or self.result) else 2,
-                border_radius=24,
+                S(4) if (self.highlight or self.result) else S(2),
+                border_radius=radius,
             )
         area = self._label_area()
-        wrap_pad = 16 if (self.text_inset_left or self.text_inset_right) else 48
+        wrap_pad = S(16) if (self.text_inset_left or self.text_inset_right) else S(48)
         lines = wrap_text(font, self.text, max(1, area.w - wrap_pad))
         total_h = sum(font.size(line)[1] for line in lines)
         y = area.centery - total_h // 2
@@ -255,44 +258,44 @@ class HUD:
         money_boost=False,
         skill_boost=False,
     ):
-        bar_h = 168
+        bar_h = S(168)
         bar = pygame.Surface((LOGICAL_W, bar_h), pygame.SRCALPHA)
         bar.fill((10, 20, 40, 120))
         surf.blit(bar, (0, 0))
 
         icon_h = assets.hud_heart.get_height()
         icon_y = (bar_h - icon_h) // 2
-        value_size = 24
-        label_size = 18
+        value_size = S(24)
+        label_size = S(18)
         text_y = icon_y + (icon_h - value_size) // 2
 
-        surf.blit(assets.hud_heart, (24, icon_y))
-        assets.draw_pixels(surf, "x{}".format(lives), 116, text_y, value_size)
+        surf.blit(assets.hud_heart, (S(24), icon_y))
+        assets.draw_pixels(surf, "x{}".format(lives), S(116), text_y, value_size)
 
-        surf.blit(assets.hud_coin, (240, icon_y))
-        assets.draw_pixels(surf, "x{:02d}".format(coins), 332, text_y, value_size)
+        surf.blit(assets.hud_coin, (S(240), icon_y))
+        assets.draw_pixels(surf, "x{:02d}".format(coins), S(332), text_y, value_size)
 
-        assets.draw_pixels(surf, "SCORE", 500, 32, label_size)
-        assets.draw_pixels(surf, "{:06d}".format(max(0, score)), 500, 86, value_size)
+        assets.draw_pixels(surf, "SCORE", S(500), S(32), label_size)
+        assets.draw_pixels(surf, "{:06d}".format(max(0, score)), S(500), S(86), value_size)
 
-        assets.draw_pixels(surf, "WORLD", 780, 32, label_size)
-        assets.draw_pixels(surf, world_code, 812, 86, value_size)
+        assets.draw_pixels(surf, "WORLD", S(780), S(32), label_size)
+        assets.draw_pixels(surf, world_code, S(812), S(86), value_size)
 
-        icon_x = 940
+        icon_x = S(940)
         if has_graddie:
             icon = assets.graddie[3] if not graddie_used else assets.graddie[0]
             scaled = pygame.transform.scale(icon, (icon_h, icon_h))
             gy = (bar_h - icon_h) // 2
             surf.blit(scaled, (icon_x, gy))
-            icon_x += icon_h + 8
+            icon_x += icon_h + S(8)
         if right_fit:
-            assets.draw_pixels(surf, "RF", icon_x, text_y, 16, GOLD)
-            icon_x += 52
+            assets.draw_pixels(surf, "RF", icon_x, text_y, S(16), GOLD)
+            icon_x += S(52)
         if money_boost:
-            assets.draw_pixels(surf, "$2", icon_x, text_y, 16, GOLD)
-            icon_x += 52
+            assets.draw_pixels(surf, "$2", icon_x, text_y, S(16), GOLD)
+            icon_x += S(52)
         if skill_boost:
-            assets.draw_pixels(surf, "INV", icon_x, text_y, 16, GOLD)
+            assets.draw_pixels(surf, "INV", icon_x, text_y, S(16), GOLD)
 
 
 class Screens:
@@ -302,18 +305,23 @@ class Screens:
         self.menu_world = World(assets, 0)
         self._menu_cam = pygame.Vector2(0, 0)
         self.start_btn = Button(
-            (280, LOGICAL_H // 2 - 85, 520, 170), "START", image=assets.btn_start
+            (S(280), LOGICAL_H // 2 - S(85), S(520), S(170)),
+            "START",
+            image=assets.btn_start,
         )
         # Game-over image buttons; rects are laid out each frame in game_over().
         self.retry_btn = Button(
-            (280, 900, 520, 170), "RETRY", image=assets.btn_retry
+            (S(280), S(900), S(520), S(170)), "RETRY", image=assets.btn_retry
         )
         self.home_btn = Button(
-            (280, 1100, 520, 170), "HOME", image=assets.btn_home
+            (S(280), S(1100), S(520), S(170)), "HOME", image=assets.btn_home
         )
         # Image-only CTA (pack_btn_cta.png); rect sized each frame in win().
         self.cta_btn = Button(
-            (260, 1500, 560, 110), "", image=assets.btn_cta, overlay_text=False
+            (S(260), S(1500), S(560), S(110)),
+            "",
+            image=assets.btn_cta,
+            overlay_text=False,
         )
 
     def menu(self, surf):
@@ -323,12 +331,12 @@ class Screens:
         px = 3 * TILE
         py = GROUND_TOP - idle.get_height()
         surf.blit(idle, (px, py))
-        title_y = 70
+        title_y = S(70)
         blit_center(surf, self.assets.title, title_y)
-        y = title_y + self.assets.title.get_height() + 18
-        self.assets.draw_pixels_center(surf, "YOUR FUTURE. YOUR CHOICES.", y, 20)
-        y += 72
-        self.assets.draw_pixels_center(surf, "WORLD 1-4", y, 22)
+        y = title_y + self.assets.title.get_height() + S(18)
+        self.assets.draw_pixels_center(surf, "YOUR FUTURE. YOUR CHOICES.", y, S(20))
+        y += S(72)
+        self.assets.draw_pixels_center(surf, "WORLD 1-4", y, S(22))
         # Vertically centered; hitbox matches drawn rect.
         self.start_btn.rect.y = LOGICAL_H // 2 - self.start_btn.rect.h // 2
         self.start_btn.draw(surf, self.assets.font_lg)
@@ -338,17 +346,17 @@ class Screens:
         overlay.fill((10, 8, 28, 180))
         surf.blit(overlay, (0, 0))
 
-        code_font = self.assets.font(58)
-        name_font = self.assets.font(36)
-        subtitle_font = self.assets.font(28)
-        hint_font = self.assets.font(18)
-        title_y = 560
+        code_font = self.assets.font(S(58))
+        name_font = self.assets.font(S(36))
+        subtitle_font = self.assets.font(S(28))
+        hint_font = self.assets.font(S(18))
+        title_y = S(560)
         draw_text_center(surf, code_font, f"WORLD {code}", title_y, GOLD)
-        name_y = title_y + code_font.get_height() + 80
+        name_y = title_y + code_font.get_height() + S(80)
         draw_text_center(surf, name_font, name, name_y, WHITE)
-        subtitle_y = name_y + name_font.get_height() + 72
+        subtitle_y = name_y + name_font.get_height() + S(72)
         draw_text_center(surf, subtitle_font, subtitle, subtitle_y, PURPLE_SOFT)
-        hint_y = subtitle_y + subtitle_font.get_height() + 72
+        hint_y = subtitle_y + subtitle_font.get_height() + S(72)
         draw_text_center(surf, hint_font, "Tap or press SPACE", hint_y, WHITE)
 
     def world_clear(self, surf, name, score, continue_btn):
@@ -356,14 +364,14 @@ class Screens:
         overlay.fill((10, 8, 28, 200))
         surf.blit(overlay, (0, 0))
 
-        title_font = self.assets.font(58)
-        name_font = self.assets.font(36)
-        score_font = self.assets.font(28)
-        title_y = 560
+        title_font = self.assets.font(S(58))
+        name_font = self.assets.font(S(36))
+        score_font = self.assets.font(S(28))
+        title_y = S(560)
         draw_text_center(surf, title_font, "WORLD CLEAR", title_y, GOLD)
-        name_y = title_y + title_font.get_height() + 80
+        name_y = title_y + title_font.get_height() + S(80)
         draw_text_center(surf, name_font, name, name_y, WHITE)
-        score_y = name_y + name_font.get_height() + 72
+        score_y = name_y + name_font.get_height() + S(72)
         draw_text_center(surf, score_font, f"Score  {score}", score_y, PURPLE_SOFT)
         continue_btn.draw(surf, self.assets.font_lg)
 
@@ -373,21 +381,21 @@ class Screens:
         surf.blit(overlay, (0, 0))
 
         # Title + score + stacked image buttons only (no panel / quote clutter).
-        title_font = self.assets.font(96)
-        score_font = self.assets.font(36)
-        title_y = 560
+        title_font = self.assets.font(S(96))
+        score_font = self.assets.font(S(36))
+        title_y = S(560)
         draw_text_center(surf, title_font, "GAME OVER", title_y, (230, 48, 48))
-        score_y = title_y + title_font.get_height() + 48
+        score_y = title_y + title_font.get_height() + S(48)
         draw_text_center(surf, score_font, f"Score  {score}", score_y, GOLD)
 
-        btn_w = 520
+        btn_w = S(520)
         retry_img = self.assets.btn_retry
         home_img = self.assets.btn_home
         retry_h = max(1, int(round(btn_w * retry_img.get_height() / retry_img.get_width())))
         home_h = max(1, int(round(btn_w * home_img.get_height() / home_img.get_width())))
         btn_x = (LOGICAL_W - btn_w) // 2
-        gap = 36
-        retry_y = score_y + score_font.get_height() + 72
+        gap = S(36)
+        retry_y = score_y + score_font.get_height() + S(72)
         self.retry_btn.rect.update(btn_x, retry_y, btn_w, retry_h)
         self.home_btn.rect.update(btn_x, retry_y + retry_h + gap, btn_w, home_h)
         self.retry_btn.draw(surf, self.assets.font_lg)
@@ -398,11 +406,11 @@ class Screens:
         surf.blit(self.assets.end_screen_bg, (0, 0))
 
         # Stats at 32 (~45% above font_md 22); score value ~2.75× for hierarchy.
-        stats_font = self.assets.font(32)
-        score_value_font = self.assets.font(88)
-        line_gap = 50
-        score_stack_gap = 14
-        pad_x, pad_y = 56, 44
+        stats_font = self.assets.font(S(32))
+        score_value_font = self.assets.font(S(88))
+        line_gap = S(50)
+        score_stack_gap = S(14)
+        pad_x, pad_y = S(56), S(44)
 
         score_label = "Your Score:"
         score_value = str(score)
@@ -424,7 +432,13 @@ class Screens:
         block_h = score_block_h + line_gap + len(other_lines) * line_gap
         pw = max_tw + pad_x * 2
         ph = block_h + pad_y * 2
-        panel = pygame.transform.smoothscale(self.assets.win_stats_panel, (pw, ph))
+        # Nearest scale is cheaper and sharp at half-res; smooth on desktop.
+        scale_fn = (
+            pygame.transform.scale
+            if RENDER_SCALE < 1.0
+            else pygame.transform.smoothscale
+        )
+        panel = scale_fn(self.assets.win_stats_panel, (pw, ph))
         panel_x = (LOGICAL_W - pw) // 2
         panel_y = (LOGICAL_H - ph) // 2  # vertical center
         surf.blit(panel, (panel_x, panel_y))
@@ -440,10 +454,10 @@ class Screens:
 
         # Image CTA (pack_btn_cta) — directly below centered stats panel.
         cta_img = self.assets.btn_cta
-        btn_w = 560
+        btn_w = S(560)
         btn_h = max(1, int(round(btn_w * cta_img.get_height() / cta_img.get_width())))
         btn_x = (LOGICAL_W - btn_w) // 2
-        btn_y = panel_y + ph + 120
+        btn_y = panel_y + ph + S(120)
         self.cta_btn.rect.update(btn_x, btn_y, btn_w, btn_h)
         self.cta_btn.draw(surf, self.assets.font_lg)
 
@@ -454,20 +468,23 @@ class Screens:
 
         layout = quiz_layout(self.assets, quiz, has_helper=graddie_btn is not None)
         panel = layout["panel"]
-        panel_img = pygame.transform.smoothscale(
-            self.assets.quiz_panel, (panel.w, panel.h)
+        scale_fn = (
+            pygame.transform.scale
+            if RENDER_SCALE < 1.0
+            else pygame.transform.smoothscale
         )
+        panel_img = scale_fn(self.assets.quiz_panel, (panel.w, panel.h))
         surf.blit(panel_img, panel.topleft)
 
         # Title + question both live in the cream header (dark ink).
         y = layout["header_text_top"]
         title_img = layout["title_font"].render(quiz["title"], True, INK)
         surf.blit(title_img, ((LOGICAL_W - title_img.get_width()) // 2, y))
-        y += title_img.get_height() + 12
+        y += title_img.get_height() + S(12)
         for line in layout["prompt_lines"]:
             img = layout["prompt_font"].render(line, True, INK)
             surf.blit(img, ((LOGICAL_W - img.get_width()) // 2, y))
-            y += img.get_height() + 4
+            y += img.get_height() + S(4)
 
         option_font = layout["option_font"]
         hint_font = layout["hint_font"]
@@ -480,7 +497,7 @@ class Screens:
             if used_graddie:
                 hint = "Graddie highlighted the best option"
             img = hint_font.render(hint, True, WHITE)
-            hint_y = graddie_btn.rect.bottom + 14
+            hint_y = graddie_btn.rect.bottom + S(14)
             surf.blit(img, (LOGICAL_W // 2 - img.get_width() // 2, hint_y))
         elif used_graddie:
             hint = "Graddie highlighted the best option"
@@ -489,15 +506,15 @@ class Screens:
                 img,
                 (
                     LOGICAL_W // 2 - img.get_width() // 2,
-                    panel.bottom - 48,
+                    panel.bottom - S(48),
                 ),
             )
 
         if feedback:
-            pad_x, pad_y = 36, 20
+            pad_x, pad_y = S(36), S(20)
             # Size banner to text first (single-line when short), then wrap if needed.
             text_w = option_font.size(feedback)[0]
-            max_inner = min(520, LOGICAL_W - 80 - 2 * pad_x)
+            max_inner = min(S(520), LOGICAL_W - S(80) - 2 * pad_x)
             inner_w = min(text_w, max_inner)
             lines = wrap_text(option_font, feedback, inner_w)
             line_h = option_font.get_height()
@@ -506,8 +523,8 @@ class Screens:
             msg_w = max_line_w + 2 * pad_x
             msg_h = total_h + 2 * pad_y
             msg_x = (LOGICAL_W - msg_w) // 2
-            msg_y = panel.bottom + 24
-            msg_y = min(msg_y, LOGICAL_H - msg_h - 40)
+            msg_y = panel.bottom + S(24)
+            msg_y = min(msg_y, LOGICAL_H - msg_h - S(40))
             msg = pygame.transform.scale(self.assets.quiz_message, (msg_w, msg_h))
             surf.blit(msg, (msg_x, msg_y))
             fy = msg_y + (msg_h - total_h) // 2

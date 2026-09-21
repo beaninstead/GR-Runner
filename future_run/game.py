@@ -12,6 +12,8 @@ from future_run.constants import (
     LOGICAL_H,
     LOGICAL_W,
     PLAYER_H,
+    RENDER_SCALE,
+    S,
     START_LIVES,
     TILE,
     WHITE,
@@ -29,7 +31,7 @@ from future_run.ui import (
     Screens,
     quiz_layout,
 )
-from future_run.web import open_url
+from future_run.web import IS_WEB, open_url
 from future_run.world import World
 
 
@@ -264,7 +266,7 @@ class FutureRun:
             return
         self.state = "world_clear"
         self.clear_continue = Button(
-            (280, 1200, 520, 140),
+            (S(280), S(1200), S(520), S(140)),
             "NEXT WORLD",
             image=self.assets.btn_start,
         )
@@ -381,65 +383,90 @@ class FutureRun:
 
     def _draw_skill_boost_fx(self, img, x, y):
         """Sprite-shaped pulsing gold aura + floating INVINCIBLE label."""
-        wave = 0.5 + 0.5 * math.sin(self.player.timer * 0.18)
-        pulse_a = 0.45 + 0.55 * wave
-        pulse_s = 1.0 + 0.07 * wave
-
         mask = pygame.mask.from_surface(img)
         silhouette = mask.to_surface(
             setcolor=(*GOLD, 255), unsetcolor=(0, 0, 0, 0)
         ).convert_alpha()
-        pad = 22
-        glow = pygame.Surface(
-            (img.get_width() + pad * 2, img.get_height() + pad * 2), pygame.SRCALPHA
-        )
-        big = pygame.transform.smoothscale(
-            silhouette,
-            (int(img.get_width() * 1.24), int(img.get_height() * 1.24)),
-        )
-        bx = (glow.get_width() - big.get_width()) // 2
-        by = (glow.get_height() - big.get_height()) // 2
-        for dx, dy, a in (
-            (0, 0, 80),
-            (-5, 0, 55),
-            (5, 0, 55),
-            (0, -5, 55),
-            (0, 5, 55),
-            (-8, -4, 35),
-            (8, -4, 35),
-            (-8, 4, 35),
-            (8, 4, 35),
-        ):
+        if RENDER_SCALE < 1.0:
+            # Cheap static tint — no per-frame smoothscale on web.
+            pad = S(12)
+            glow = pygame.Surface(
+                (img.get_width() + pad * 2, img.get_height() + pad * 2),
+                pygame.SRCALPHA,
+            )
+            big = pygame.transform.scale(
+                silhouette,
+                (int(img.get_width() * 1.16), int(img.get_height() * 1.16)),
+            )
+            bx = (glow.get_width() - big.get_width()) // 2
+            by = (glow.get_height() - big.get_height()) // 2
             layer = big.copy()
-            layer.fill((255, 255, 255, a), special_flags=pygame.BLEND_RGBA_MULT)
-            glow.blit(layer, (bx + dx, by + dy))
+            layer.fill((255, 255, 255, 90), special_flags=pygame.BLEND_RGBA_MULT)
+            glow.blit(layer, (bx, by))
+            self.logical.blit(
+                glow,
+                (
+                    x - (glow.get_width() - img.get_width()) // 2,
+                    y - (glow.get_height() - img.get_height()) // 2,
+                ),
+            )
+        else:
+            wave = 0.5 + 0.5 * math.sin(self.player.timer * 0.18)
+            pulse_a = 0.45 + 0.55 * wave
+            pulse_s = 1.0 + 0.07 * wave
+            pad = 22
+            glow = pygame.Surface(
+                (img.get_width() + pad * 2, img.get_height() + pad * 2),
+                pygame.SRCALPHA,
+            )
+            big = pygame.transform.smoothscale(
+                silhouette,
+                (int(img.get_width() * 1.24), int(img.get_height() * 1.24)),
+            )
+            bx = (glow.get_width() - big.get_width()) // 2
+            by = (glow.get_height() - big.get_height()) // 2
+            for dx, dy, a in (
+                (0, 0, 80),
+                (-5, 0, 55),
+                (5, 0, 55),
+                (0, -5, 55),
+                (0, 5, 55),
+                (-8, -4, 35),
+                (8, -4, 35),
+                (-8, 4, 35),
+                (8, 4, 35),
+            ):
+                layer = big.copy()
+                layer.fill((255, 255, 255, a), special_flags=pygame.BLEND_RGBA_MULT)
+                glow.blit(layer, (bx + dx, by + dy))
 
-        glow.fill(
-            (255, 255, 255, int(255 * pulse_a)),
-            special_flags=pygame.BLEND_RGBA_MULT,
-        )
-        if abs(pulse_s - 1.0) > 0.001:
-            nw = max(1, int(glow.get_width() * pulse_s))
-            nh = max(1, int(glow.get_height() * pulse_s))
-            glow = pygame.transform.smoothscale(glow, (nw, nh))
-        self.logical.blit(
-            glow,
-            (
-                x - (glow.get_width() - img.get_width()) // 2,
-                y - (glow.get_height() - img.get_height()) // 2,
-            ),
-        )
+            glow.fill(
+                (255, 255, 255, int(255 * pulse_a)),
+                special_flags=pygame.BLEND_RGBA_MULT,
+            )
+            if abs(pulse_s - 1.0) > 0.001:
+                nw = max(1, int(glow.get_width() * pulse_s))
+                nh = max(1, int(glow.get_height() * pulse_s))
+                glow = pygame.transform.smoothscale(glow, (nw, nh))
+            self.logical.blit(
+                glow,
+                (
+                    x - (glow.get_width() - img.get_width()) // 2,
+                    y - (glow.get_height() - img.get_height()) // 2,
+                ),
+            )
 
-        font = self.assets.font(18)
+        wave = 0.5 + 0.5 * math.sin(self.player.timer * 0.18)
+        font = self.assets.font(S(18))
         label = "INVINCIBLE"
         text = font.render(label, True, GOLD)
         outline = font.render(label, True, WHITE)
         text_a = int(160 + 95 * wave)
         tx = x + img.get_width() // 2 - text.get_width() // 2
-        ty = y - text.get_height() - 18 - int(4 * wave)
+        ty = y - text.get_height() - S(18) - int(S(4) * wave)
 
         glow_layer = pygame.Surface(
-            (text.get_width() + 24, text.get_height() + 24), pygame.SRCALPHA
+            (text.get_width() + S(24), text.get_height() + S(24)), pygame.SRCALPHA
         )
         for dx, dy in (
             (-3, 0),
@@ -451,10 +478,10 @@ class FutureRun:
             (-2, 2),
             (2, 2),
         ):
-            glow_layer.blit(outline, (12 + dx, 12 + dy))
+            glow_layer.blit(outline, (S(12) + dx, S(12) + dy))
         tinted = glow_layer.copy()
         tinted.fill((*GOLD, text_a), special_flags=pygame.BLEND_RGBA_MULT)
-        self.logical.blit(tinted, (tx - 12, ty - 12))
+        self.logical.blit(tinted, (tx - S(12), ty - S(12)))
         for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
             self.logical.blit(outline, (tx + dx, ty + dy))
         main = text.copy()
@@ -616,7 +643,9 @@ class FutureRun:
                 shade.fill((0, 0, 0, 140))
                 self.logical.blit(shade, (0, 0))
                 img = self.assets.font_lg.render("Paused", True, (255, 255, 255))
-                self.logical.blit(img, ((LOGICAL_W - img.get_width()) // 2, 900))
+                self.logical.blit(
+                    img, ((LOGICAL_W - img.get_width()) // 2, S(900))
+                )
 
         if self.state == "play":
             self.touch.draw(self.logical, self.assets.font_sm)
@@ -624,6 +653,15 @@ class FutureRun:
         ww, wh = self.window.get_size()
         scale = min(ww / LOGICAL_W, wh / LOGICAL_H)
         dw, dh = int(LOGICAL_W * scale), int(LOGICAL_H * scale)
-        scaled = pygame.transform.smoothscale(self.logical, (dw, dh))
+        ox = (ww - dw) // 2
+        oy = (wh - dh) // 2
         self.window.fill((10, 8, 20))
-        self.window.blit(scaled, ((ww - dw) // 2, (wh - dh) // 2))
+        # Avoid a wasteful 1:1 smoothscale copy every frame (common on web).
+        if dw == LOGICAL_W and dh == LOGICAL_H:
+            self.window.blit(self.logical, (ox, oy))
+        elif IS_WEB or RENDER_SCALE < 1.0:
+            scaled = pygame.transform.scale(self.logical, (dw, dh))
+            self.window.blit(scaled, (ox, oy))
+        else:
+            scaled = pygame.transform.smoothscale(self.logical, (dw, dh))
+            self.window.blit(scaled, (ox, oy))
