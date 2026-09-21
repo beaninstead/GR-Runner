@@ -172,6 +172,7 @@ class FutureRun:
                     image=self.assets.quiz_option,
                     image_correct=self.assets.quiz_option_correct,
                     image_wrong=self.assets.quiz_option_wrong,
+                    image_hint=self.assets.quiz_option_hint,
                     overlay_text=True,
                     text_color=INK,
                 )

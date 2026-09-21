@@ -763,6 +763,8 @@ class Assets:
         self.quiz_option = _clean_ui("img/future_run/quiz_option.png")
         self.quiz_option_correct = _clean_ui("img/future_run/quiz_option_correct.png")
         self.quiz_option_wrong = _clean_ui("img/future_run/quiz_option_wrong.png")
+        # Gold/cream frame for Ask-Graddie correct-option hint.
+        self.quiz_option_hint = _clean_ui("img/future_run/quiz_option_hint.png")
         self.quiz_message = _clean_ui("img/future_run/quiz_message.png")
         # Pre-trimmed ask-helper banner (Graddie + white text panel).
         self.ask_graddie = load_image("img/future_run/ask_graddie.png", alpha=True)

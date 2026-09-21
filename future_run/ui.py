@@ -1,3 +1,5 @@
+import math
+
 import pygame
 
 from future_run.constants import (
@@ -15,6 +17,9 @@ from future_run.constants import (
     WHITE,
 )
 from future_run.world import World
+
+# Bright gold used for Ask-Graddie hint glow (reads on cream + dark quiz overlay).
+_HINT_GLOW = (255, 220, 60)
 
 
 def blit_center(surf, image, y):
@@ -166,6 +171,7 @@ class Button:
         text_color=WHITE,
         image_correct=None,
         image_wrong=None,
+        image_hint=None,
         text_inset_left=0.0,
         text_inset_right=0.0,
     ):
@@ -176,25 +182,34 @@ class Button:
         self.image = image
         self.image_correct = image_correct
         self.image_wrong = image_wrong
+        self.image_hint = image_hint
         self.overlay_text = overlay_text
         self.text_color = text_color
         self.text_inset_left = float(text_inset_left)
         self.text_inset_right = float(text_inset_right)
         self.result = None  # None | "correct" | "wrong"
 
+    def _hint_active(self):
+        """Graddie/Right-Fit hint chrome (before answer feedback)."""
+        return bool(self.highlight and self.result is None and self.image_hint is not None)
+
     def _active_image(self):
         if self.result == "correct" and self.image_correct is not None:
             return self.image_correct
         if self.result == "wrong" and self.image_wrong is not None:
             return self.image_wrong
+        if self._hint_active():
+            return self.image_hint
         if self.highlight and self.image_correct is not None:
             return self.image_correct
         return self.image
 
     def _label_color(self):
-        if self.result == "correct" or self.highlight:
+        if self.result == "correct" or self.result == "wrong":
             return WHITE
-        if self.result == "wrong":
+        if self._hint_active():
+            return INK  # cream gold panel
+        if self.highlight:
             return WHITE
         return self.text_color
 
@@ -211,11 +226,76 @@ class Button:
             )
         return self.rect
 
+    def _draw_hint_glow(self, surf, img):
+        """Pulsing yellow aura around the hinted option (alpha + light scale)."""
+        mask = pygame.mask.from_surface(img)
+        silhouette = mask.to_surface(
+            setcolor=(*_HINT_GLOW, 255), unsetcolor=(0, 0, 0, 0)
+        ).convert_alpha()
+        wave = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.0065)
+        pulse_a = 0.40 + 0.55 * wave
+        pulse_s = 1.0 + 0.055 * wave
+        pad = S(16)
+        glow = pygame.Surface(
+            (img.get_width() + pad * 2, img.get_height() + pad * 2),
+            pygame.SRCALPHA,
+        )
+        scale = 1.18 if RENDER_SCALE < 1.0 else 1.24
+        big = pygame.transform.scale(
+            silhouette,
+            (
+                max(1, int(img.get_width() * scale)),
+                max(1, int(img.get_height() * scale)),
+            ),
+        )
+        bx = (glow.get_width() - big.get_width()) // 2
+        by = (glow.get_height() - big.get_height()) // 2
+        if RENDER_SCALE < 1.0:
+            # Alpha pulse only — skip per-frame smoothscale on web.
+            layer = big.copy()
+            layer.fill(
+                (255, 255, 255, int(70 + 100 * wave)),
+                special_flags=pygame.BLEND_RGBA_MULT,
+            )
+            glow.blit(layer, (bx, by))
+        else:
+            for dx, dy, a in (
+                (0, 0, 88),
+                (-4, 0, 55),
+                (4, 0, 55),
+                (0, -4, 55),
+                (0, 4, 55),
+                (-7, -3, 32),
+                (7, -3, 32),
+                (-7, 3, 32),
+                (7, 3, 32),
+            ):
+                layer = big.copy()
+                layer.fill((255, 255, 255, a), special_flags=pygame.BLEND_RGBA_MULT)
+                glow.blit(layer, (bx + dx, by + dy))
+            glow.fill(
+                (255, 255, 255, int(255 * pulse_a)),
+                special_flags=pygame.BLEND_RGBA_MULT,
+            )
+            if abs(pulse_s - 1.0) > 0.001:
+                nw = max(1, int(glow.get_width() * pulse_s))
+                nh = max(1, int(glow.get_height() * pulse_s))
+                glow = pygame.transform.smoothscale(glow, (nw, nh))
+        surf.blit(
+            glow,
+            (
+                self.rect.x - (glow.get_width() - img.get_width()) // 2,
+                self.rect.y - (glow.get_height() - img.get_height()) // 2,
+            ),
+        )
+
     def draw(self, surf, font):
         img = self._active_image()
         if img is not None:
             if img.get_width() != self.rect.w or img.get_height() != self.rect.h:
                 img = pygame.transform.scale(img, (self.rect.w, self.rect.h))
+            if self._hint_active():
+                self._draw_hint_glow(surf, img)
             surf.blit(img, self.rect.topleft)
             if not self.overlay_text:
                 return
