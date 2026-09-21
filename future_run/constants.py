@@ -81,4 +81,10 @@ WORLD4_INVINCIBLE_FRAMES = 60 * 60 * 20  # ~20 minutes
 SKILL_BOOST_FRAMES = 60 * 8  # ~8 seconds of super-speed
 SKILL_BOOST_MAX = S(14.5)
 WORLD_INTRO_FRAMES = 90
+# Quiz answer feedback bubble — ~5s of real time under frame_scale(dt).
+QUIZ_FEEDBACK_FRAMES = 60 * 5
 CTA_URL = "https://www.gradright.com"
+# Daily leaderboard API. Empty = same-origin `/api/leaderboard` on web
+# (Vercel). Override for local static preview against production, e.g.
+# "https://future-run.vercel.app". Days are UTC calendar buckets.
+LEADERBOARD_API_URL = ""

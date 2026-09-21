@@ -51,6 +51,88 @@ def _wrap_text(font, text, width):
     return lines
 
 
+# Shared red aura for ground + floating hazards (BookPile, phones, blobs, …).
+# Bright hazard red — must read on blue city backdrops at half-res web scale.
+_HAZARD_GLOW = (255, 32, 24)
+
+
+def _hazard_silhouette(img, glow_rgb):
+    """Red silhouette of opaque pixels (follows sprite outline, not a box)."""
+    mask = pygame.mask.from_surface(img, 40)
+    if mask.count() <= 0:
+        # Softer threshold; never fall back to ellipse/rect fills.
+        mask = pygame.mask.from_surface(img, 1)
+    if mask.count() <= 0:
+        return pygame.Surface(img.get_size(), pygame.SRCALPHA)
+    return mask.to_surface(
+        setcolor=(*glow_rgb, 255), unsetcolor=(0, 0, 0, 0)
+    ).convert_alpha()
+
+
+def _hazard_glow_for(img, cache, glow_rgb=_HAZARD_GLOW):
+    """Cached thin silhouette rim glow (no ellipse/rect blob behind hazards).
+
+    Uses morphological offset stamps (not uniform scale). Uniform scale from the
+    sprite center rounded phones/wings into elliptical blobs; stamps expand along
+    the true outline by only a few pixels.
+    """
+    key = id(img)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    silhouette = _hazard_silhouette(img, glow_rgb)
+    # ~2–3px rim ≈ 1/3 of the old ~1.4× + fat ellipse expansion.
+    if RENDER_SCALE < 1.0:
+        radius = max(2, S(3))
+        alphas = (165, 100, 55)
+    else:
+        radius = 3
+        alphas = (155, 95, 50)
+    pad = radius + 1
+    outer = pygame.Surface(
+        (img.get_width() + pad * 2, img.get_height() + pad * 2), pygame.SRCALPHA
+    )
+    # Ring stamps: full disc of offsets at decreasing alpha (soft thin rim).
+    for r, a in ((radius, alphas[2]), (max(1, radius - 1), alphas[1]), (0, alphas[0])):
+        layer = silhouette.copy()
+        layer.fill((255, 255, 255, a), special_flags=pygame.BLEND_RGBA_MULT)
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                if dx * dx + dy * dy > r * r:
+                    continue
+                outer.blit(layer, (pad + dx, pad + dy))
+    cache[key] = outer
+    return outer
+
+
+def _blit_pulsing_hazard_glow(surf, glow, img, x, y, timer):
+    """Sine-pulse glow under a hazard. Alpha-led; light scale so rim stays thin."""
+    wave = 0.5 + 0.5 * math.sin(timer * 0.14)
+    # Never drop below ~55% — dim trough looked like "no glow" on web.
+    pulse_a = 0.55 + 0.45 * wave
+    # Keep scale pulse tiny so pulsing does not fatten the silhouette rim.
+    pulse_s = 1.0 + 0.04 * wave
+    pulsed = glow.copy()
+    pulsed.fill(
+        (255, 255, 255, int(255 * pulse_a)),
+        special_flags=pygame.BLEND_RGBA_MULT,
+    )
+    if abs(pulse_s - 1.0) > 0.001:
+        nw = max(1, int(pulsed.get_width() * pulse_s))
+        nh = max(1, int(pulsed.get_height() * pulse_s))
+        if RENDER_SCALE < 1.0:
+            pulsed = pygame.transform.scale(pulsed, (nw, nh))
+        else:
+            pulsed = pygame.transform.smoothscale(pulsed, (nw, nh))
+    surf.blit(
+        pulsed,
+        (
+            x - (pulsed.get_width() - img.get_width()) // 2,
+            y - (pulsed.get_height() - img.get_height()) // 2,
+        ),
+    )
+
+
 class Coin:
     def __init__(self, col, row, anim):
         self.rect = pygame.Rect(_tx(col) + 8, _ty(row) + 8, TILE - 16, TILE - 16)
@@ -65,7 +147,6 @@ class Coin:
 
 
 class BookPile:
-    _GLOW = (255, 56, 40)  # red hazard aura
     # Spin newspaper front→edge→front (smooth horizontal flip).
     _SPIN_CYCLE = (0, 1, 2, 3, 2, 1)
 
@@ -98,100 +179,12 @@ class BookPile:
             return self.frames[idx]
         return self.image
 
-    def _glow_for(self, img):
-        key = id(img)
-        cached = self._glow_cache.get(key)
-        if cached is not None:
-            return cached
-        mask = pygame.mask.from_surface(img)
-        silhouette = mask.to_surface(
-            setcolor=(*self._GLOW, 255), unsetcolor=(0, 0, 0, 0)
-        ).convert_alpha()
-        # Web: single cheap halo; desktop: feathered soft glow.
-        if RENDER_SCALE < 1.0:
-            pad = S(12)
-            outer = pygame.Surface(
-                (img.get_width() + pad * 2, img.get_height() + pad * 2),
-                pygame.SRCALPHA,
-            )
-            big = pygame.transform.scale(
-                silhouette,
-                (int(img.get_width() * 1.15), int(img.get_height() * 1.15)),
-            )
-            bx = (outer.get_width() - big.get_width()) // 2
-            by = (outer.get_height() - big.get_height()) // 2
-            layer = big.copy()
-            layer.fill((255, 255, 255, 70), special_flags=pygame.BLEND_RGBA_MULT)
-            outer.blit(layer, (bx, by))
-            self._glow_cache[key] = outer
-            return outer
-        pad = 20
-        outer = pygame.Surface(
-            (img.get_width() + pad * 2, img.get_height() + pad * 2), pygame.SRCALPHA
-        )
-        big = pygame.transform.smoothscale(
-            silhouette,
-            (int(img.get_width() * 1.22), int(img.get_height() * 1.22)),
-        )
-        bx = (outer.get_width() - big.get_width()) // 2
-        by = (outer.get_height() - big.get_height()) // 2
-        for dx, dy, a in (
-            (0, 0, 70),
-            (-5, 0, 48),
-            (5, 0, 48),
-            (0, -5, 48),
-            (0, 5, 48),
-            (-7, -4, 32),
-            (7, -4, 32),
-            (-7, 4, 32),
-            (7, 4, 32),
-        ):
-            layer = big.copy()
-            layer.fill((255, 255, 255, a), special_flags=pygame.BLEND_RGBA_MULT)
-            outer.blit(layer, (bx + dx, by + dy))
-        self._glow_cache[key] = outer
-        return outer
-
     def draw(self, surf, cam, assets=None):
         img = self._current_image()
         x = self.rect.x - cam.x + (self.rect.w - img.get_width()) // 2
         y = self.rect.bottom - cam.y - img.get_height()
-        glow = self._glow_for(img)
-        if RENDER_SCALE < 1.0:
-            # Skip per-frame pulse smoothscale on web.
-            glow_draw = glow.copy()
-            glow_draw.fill(
-                (255, 255, 255, 160),
-                special_flags=pygame.BLEND_RGBA_MULT,
-            )
-            surf.blit(
-                glow_draw,
-                (
-                    x - (glow_draw.get_width() - img.get_width()) // 2,
-                    y - (glow_draw.get_height() - img.get_height()) // 2,
-                ),
-            )
-        else:
-            # Sine pulse: alpha + slight scale so the hazard reads as urgent.
-            wave = 0.5 + 0.5 * math.sin(self.timer * 0.12)
-            pulse_a = 0.38 + 0.62 * wave
-            pulse_s = 1.0 + 0.06 * wave
-            pulsed = glow.copy()
-            pulsed.fill(
-                (255, 255, 255, int(255 * pulse_a)),
-                special_flags=pygame.BLEND_RGBA_MULT,
-            )
-            if abs(pulse_s - 1.0) > 0.001:
-                nw = max(1, int(pulsed.get_width() * pulse_s))
-                nh = max(1, int(pulsed.get_height() * pulse_s))
-                pulsed = pygame.transform.smoothscale(pulsed, (nw, nh))
-            surf.blit(
-                pulsed,
-                (
-                    x - (pulsed.get_width() - img.get_width()) // 2,
-                    y - (pulsed.get_height() - img.get_height()) // 2,
-                ),
-            )
+        glow = _hazard_glow_for(img, self._glow_cache)
+        _blit_pulsing_hazard_glow(surf, glow, img, x, y, self.timer)
         surf.blit(img, (x, y))
         if self._hint_lines:
             gap = 4
@@ -227,6 +220,7 @@ class FlyingPhone:
         self.dir = 1
         self.frames = frames
         self.timer = 0.0
+        self._glow_cache = {}
 
     def update(self, dt=1.0):
         self.rect.x += int(self.speed * self.dir * dt)
@@ -235,10 +229,16 @@ class FlyingPhone:
         self.timer += dt
 
     def draw(self, surf, cam):
-        img = self.frames[(int(self.timer) // 8) % len(self.frames)]
+        frame = self.frames[(int(self.timer) // 8) % len(self.frames)]
+        glow = _hazard_glow_for(frame, self._glow_cache)
+        img = frame
         if self.dir < 0:
-            img = pygame.transform.flip(img, True, False)
-        surf.blit(img, (self.rect.x - cam.x, self.rect.y - cam.y))
+            img = pygame.transform.flip(frame, True, False)
+            glow = pygame.transform.flip(glow, True, False)
+        x = self.rect.x - cam.x
+        y = self.rect.y - cam.y
+        _blit_pulsing_hazard_glow(surf, glow, img, x, y, self.timer)
+        surf.blit(img, (x, y))
 
 
 class FallingHazard:
@@ -252,6 +252,7 @@ class FallingHazard:
         self.image = image
         self.timer = 0.0
         self.dir = 1
+        self._glow_cache = {}
 
     def update(self, dt=1.0):
         self.timer += dt
@@ -260,7 +261,12 @@ class FallingHazard:
             self.dir *= -1
 
     def draw(self, surf, cam):
-        surf.blit(self.image, (self.rect.x - cam.x, self.rect.y - cam.y))
+        img = self.image
+        x = self.rect.x - cam.x
+        y = self.rect.y - cam.y
+        glow = _hazard_glow_for(img, self._glow_cache)
+        _blit_pulsing_hazard_glow(surf, glow, img, x, y, self.timer)
+        surf.blit(img, (x, y))
 
 
 class Platform:

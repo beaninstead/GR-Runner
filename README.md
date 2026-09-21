@@ -50,3 +50,9 @@ Static site files live in `web_app/build/web/`:
 - `vercel.json` — MIME / cache headers for the archive
 
 `web_app/requirements.txt` is intentionally empty so cold loads do **not** fetch a ~12MB numpy wheel from the pygame-web CDN.
+
+## Daily leaderboard
+
+Anonymous nicknames, **UTC day** buckets, Neon Postgres via Vercel Marketplace. See [docs/LEADERBOARD.md](docs/LEADERBOARD.md).
+
+API lives next to the static site (`web_app/build/web/api/`) so Root Directory stays `web_app/build/web` and `/api/leaderboard` is same-origin.

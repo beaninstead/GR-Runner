@@ -13,3 +13,12 @@ web_app/**
 !web_app/build/web/
 !web_app/build/web/**
 web_app/build/web/.vercel/
+web_app/build/web/node_modules/
+web_app/build/web/.agents/
+web_app/build/web/skills-lock.json
+web_app/build/web/.env*
+!web_app/build/web/.env.example
+.vercel
+.env*
+!.env.example
+node_modules/

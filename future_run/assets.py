@@ -717,6 +717,7 @@ class Assets:
         self.title = fit_width(trim_alpha(title, pad=4), S(520))
 
         self.btn_start = clean_button("img/future_run/pack_btn_start.png")
+        self.btn_continue = clean_button("img/future_run/pack_btn_continue.png")
         self.btn_retry = clean_button("img/future_run/pack_btn_retry.png")
         self.btn_home = clean_button("img/future_run/pack_btn_home.png")
         self.btn_cta = clean_button("img/future_run/pack_btn_cta.png")

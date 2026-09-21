@@ -27,9 +27,29 @@ def blit_center(surf, image, y):
 
 
 def draw_text_center(surf, font, text, y, color=WHITE):
-    img = font.render(text, True, color)
+    img = font.render(str(text), True, color)
     blit_center(surf, img, y)
     return img
+
+
+def _status_line(status, limit=40):
+    """Coerce win-screen status to a plain string safe for font.render."""
+    if status is None or status is False or status == "":
+        return ""
+    if isinstance(status, dict):
+        status = status.get("error") or status.get("message") or "Error"
+    text = str(status).strip()
+    if not text:
+        return ""
+    low = text.lower()
+    if (
+        "object of type" in low
+        or "cannot be convert" in low
+        or "traceback" in low
+        or low.startswith("typeerror")
+    ):
+        return "Could not reach leaderboard"
+    return text[:limit]
 
 
 def wrap_text(font, text, width):
@@ -158,6 +178,31 @@ def quiz_layout(assets, quiz, has_helper=False):
         "choice_rects": choice_rects,
         "helper_rect": helper_rect,
     }
+
+
+def quiz_feedback_message_rect(assets, panel, feedback):
+    """Hitbox for the post-answer feedback bubble (matches Screens.quiz draw).
+
+    Returns (rect, lines, line_h, line_gap) or (None, [], 0, 0).
+    """
+    if not feedback:
+        return None, [], 0, 0
+    option_font = assets.font(_QUIZ_OPTION_SIZE)
+    pad_x, pad_y = S(36), S(20)
+    text_w = option_font.size(feedback)[0]
+    max_inner = min(S(520), LOGICAL_W - S(80) - 2 * pad_x)
+    inner_w = min(text_w, max_inner)
+    lines = wrap_text(option_font, feedback, inner_w)
+    line_h = option_font.get_height()
+    line_gap = _QUIZ_LINE_GAP if len(lines) > 1 else 0
+    total_h = line_h * len(lines) + line_gap * (len(lines) - 1)
+    max_line_w = max(option_font.size(line)[0] for line in lines)
+    msg_w = max_line_w + 2 * pad_x
+    msg_h = total_h + 2 * pad_y
+    msg_x = (LOGICAL_W - msg_w) // 2
+    msg_y = panel.bottom + S(24)
+    msg_y = min(msg_y, LOGICAL_H - msg_h - S(40))
+    return pygame.Rect(msg_x, msg_y, msg_w, msg_h), lines, line_h, line_gap
 
 
 class Button:
@@ -410,6 +455,20 @@ class Screens:
             image=assets.btn_cta,
             overlay_text=False,
         )
+        # Text buttons for daily leaderboard (win flow).
+        self.submit_btn = Button(
+            (S(200), S(1400), S(680), S(100)), "SUBMIT SCORE", color=PURPLE
+        )
+        self.confirm_nick_btn = Button(
+            (S(200), S(1200), S(680), S(100)), "POST SCORE", color=PURPLE
+        )
+        self.board_back_btn = Button(
+            (S(200), S(1600), S(320), S(90)), "BACK", color=PURPLE_DARK
+        )
+        self.skip_board_btn = Button(
+            (S(560), S(1600), S(320), S(90)), "SKIP", color=PURPLE_DARK
+        )
+        self.nick_field_rect = pygame.Rect(0, 0, 0, 0)
 
     def menu(self, surf):
         self.menu_world.draw_background(surf, self._menu_cam)
@@ -455,11 +514,19 @@ class Screens:
         name_font = self.assets.font(S(36))
         score_font = self.assets.font(S(28))
         title_y = S(560)
-        draw_text_center(surf, title_font, "WORLD CLEAR", title_y, GOLD)
+        draw_text_center(surf, title_font, "WORLD CLEARED", title_y, GOLD)
         name_y = title_y + title_font.get_height() + S(80)
         draw_text_center(surf, name_font, name, name_y, WHITE)
         score_y = name_y + name_font.get_height() + S(72)
         draw_text_center(surf, score_font, f"Score  {score}", score_y, PURPLE_SOFT)
+
+        # Image CONTINUE button — aspect-correct like game-over buttons.
+        cont_img = continue_btn.image or self.assets.btn_continue
+        btn_w = S(520)
+        btn_h = max(1, int(round(btn_w * cont_img.get_height() / cont_img.get_width())))
+        btn_x = (LOGICAL_W - btn_w) // 2
+        btn_y = score_y + score_font.get_height() + S(72)
+        continue_btn.rect.update(btn_x, btn_y, btn_w, btn_h)
         continue_btn.draw(surf, self.assets.font_lg)
 
     def game_over(self, surf, score):
@@ -488,11 +555,41 @@ class Screens:
         self.retry_btn.draw(surf, self.assets.font_lg)
         self.home_btn.draw(surf, self.assets.font_lg)
 
-    def win(self, surf, score, coins, smart, lives):
-        # Full-bleed celebratory art (branding + FUTURE READY already in image).
+    def _win_bg(self, surf):
         surf.blit(self.assets.end_screen_bg, (0, 0))
 
-        # Stats at 32 (~45% above font_md 22); score value ~2.75× for hierarchy.
+    def _layout_cta(self, panel_bottom):
+        cta_img = self.assets.btn_cta
+        btn_w = S(560)
+        btn_h = max(1, int(round(btn_w * cta_img.get_height() / cta_img.get_width())))
+        btn_x = (LOGICAL_W - btn_w) // 2
+        btn_y = min(panel_bottom + S(40), LOGICAL_H - btn_h - S(24))
+        self.cta_btn.rect.update(btn_x, btn_y, btn_w, btn_h)
+        return btn_y
+
+    def win(self, surf, score, coins, smart, lives, mode="stats", nick="", status="", board=None):
+        """Campaign win screen with optional nickname entry / daily leaderboard.
+
+        mode: stats | nickname | board
+        Days are UTC (shown on the board panel).
+        """
+        self._win_bg(surf)
+        scale_fn = (
+            pygame.transform.scale
+            if RENDER_SCALE < 1.0
+            else pygame.transform.smoothscale
+        )
+        btn_font = self.assets.font(S(26))
+
+        if mode == "board":
+            self._draw_leaderboard(surf, scale_fn, board, status)
+            return
+
+        if mode == "nickname":
+            self._draw_nickname(surf, scale_fn, nick, status, btn_font)
+            return
+
+        # --- stats (default) ---
         stats_font = self.assets.font(S(32))
         score_value_font = self.assets.font(S(88))
         line_gap = S(50)
@@ -519,15 +616,10 @@ class Screens:
         block_h = score_block_h + line_gap + len(other_lines) * line_gap
         pw = max_tw + pad_x * 2
         ph = block_h + pad_y * 2
-        # Nearest scale is cheaper and sharp at half-res; smooth on desktop.
-        scale_fn = (
-            pygame.transform.scale
-            if RENDER_SCALE < 1.0
-            else pygame.transform.smoothscale
-        )
         panel = scale_fn(self.assets.win_stats_panel, (pw, ph))
         panel_x = (LOGICAL_W - pw) // 2
-        panel_y = (LOGICAL_H - ph) // 2  # vertical center
+        # Raise panel so submit + CTA fit below.
+        panel_y = max(S(80), (LOGICAL_H - ph) // 2 - S(160))
         surf.blit(panel, (panel_x, panel_y))
 
         y = panel_y + pad_y
@@ -539,13 +631,148 @@ class Screens:
             draw_text_center(surf, stats_font, line, y, INK)
             y += line_gap
 
-        # Image CTA (pack_btn_cta) — directly below centered stats panel.
-        cta_img = self.assets.btn_cta
-        btn_w = S(560)
-        btn_h = max(1, int(round(btn_w * cta_img.get_height() / cta_img.get_width())))
-        btn_x = (LOGICAL_W - btn_w) // 2
-        btn_y = panel_y + ph + S(120)
-        self.cta_btn.rect.update(btn_x, btn_y, btn_w, btn_h)
+        submit_w, submit_h = S(680), S(100)
+        submit_x = (LOGICAL_W - submit_w) // 2
+        submit_y = panel_y + ph + S(48)
+        self.submit_btn.rect.update(submit_x, submit_y, submit_w, submit_h)
+        self.submit_btn.draw(surf, btn_font)
+
+        self._layout_cta(self.submit_btn.rect.bottom + S(36))
+        self.cta_btn.draw(surf, self.assets.font_lg)
+
+    def _draw_nickname(self, surf, scale_fn, nick, status, btn_font):
+        title_font = self.assets.font(S(36))
+        body_font = self.assets.font(S(24))
+        pad_x, pad_y = S(48), S(40)
+        lines = [
+            "Anonymous nickname",
+            "3-16 letters / numbers",
+            "Daily board (UTC)",
+        ]
+        field_h = S(88)
+        inner_w = S(820)
+        pw = inner_w + pad_x * 2
+        ph = pad_y * 2 + title_font.get_height() + S(24) + body_font.get_height() * 3 + S(28) + field_h + S(24) + S(100)
+        panel = scale_fn(self.assets.win_stats_panel, (pw, ph))
+        panel_x = (LOGICAL_W - pw) // 2
+        panel_y = max(S(120), (LOGICAL_H - ph) // 2 - S(80))
+        surf.blit(panel, (panel_x, panel_y))
+
+        y = panel_y + pad_y
+        draw_text_center(surf, title_font, "JOIN TODAY'S BOARD", y, INK)
+        y += title_font.get_height() + S(24)
+        for line in lines:
+            draw_text_center(surf, body_font, line, y, INK)
+            y += body_font.get_height() + S(8)
+
+        field = pygame.Rect(panel_x + pad_x, y + S(12), inner_w, field_h)
+        pygame.draw.rect(surf, WHITE, field, border_radius=S(16))
+        pygame.draw.rect(surf, PURPLE, field, S(4), border_radius=S(16))
+        shown = str(nick or "") + "|"
+        nick_img = body_font.render(shown[:22], True, INK)
+        surf.blit(
+            nick_img,
+            (field.x + S(24), field.centery - nick_img.get_height() // 2),
+        )
+        self.nick_field_rect = field
+        y = field.bottom + S(28)
+
+        status_text = _status_line(status, 40)
+        if status_text:
+            err_font = self.assets.font(S(20))
+            draw_text_center(surf, err_font, status_text, y, (180, 40, 40))
+            y += err_font.get_height() + S(16)
+
+        bw, bh = S(680), S(100)
+        self.confirm_nick_btn.rect.update((LOGICAL_W - bw) // 2, y, bw, bh)
+        self.confirm_nick_btn.draw(surf, btn_font)
+
+        self._layout_cta(self.confirm_nick_btn.rect.bottom + S(48))
+        self.cta_btn.draw(surf, self.assets.font_lg)
+
+    def _draw_leaderboard(self, surf, scale_fn, board, status):
+        title_font = self.assets.font(S(34))
+        row_font = self.assets.font(S(20))
+        small = self.assets.font(S(16))
+        pad_x, pad_y = S(36), S(36)
+        day = (board or {}).get("day_key", "UTC")
+        top = list((board or {}).get("top") or [])
+        you = (board or {}).get("you")
+        rows = top[:10]
+        # Ensure "you" appears even outside top 10
+        you_in_top = False
+        if you:
+            for r in rows:
+                if r.get("player_id") and r.get("player_id") == you.get("player_id"):
+                    you_in_top = True
+                    r["_is_you"] = True
+                    break
+            if not you_in_top:
+                you = dict(you)
+                you["_is_you"] = True
+                you["_separator"] = True
+
+        pw = S(960)
+        row_h = S(44)
+        header_h = title_font.get_height() + small.get_height() + S(36)
+        extra = row_h + S(16) if (you and not you_in_top) else 0
+        ph = pad_y * 2 + header_h + row_h * max(1, len(rows)) + extra + S(20)
+        ph = min(ph, LOGICAL_H - S(280))
+        panel = scale_fn(self.assets.win_stats_panel, (pw, ph))
+        panel_x = (LOGICAL_W - pw) // 2
+        panel_y = S(72)
+        surf.blit(panel, (panel_x, panel_y))
+
+        y = panel_y + pad_y
+        draw_text_center(surf, title_font, "DAILY TOP 10", y, INK)
+        y += title_font.get_height() + S(8)
+        draw_text_center(surf, small, f"UTC day  {day}", y, PURPLE_DARK)
+        y += small.get_height() + S(20)
+
+        def draw_row(entry, yy, highlight=False):
+            rank = entry.get("rank", "?")
+            nick = str(entry.get("nickname", "?"))[:14]
+            sc = entry.get("score", 0)
+            sm = entry.get("smart", 0)
+            label = f"{rank:>2}  {nick:<14}  {sc:>5}  S{sm}"
+            color = PURPLE if highlight else INK
+            img = row_font.render(label, True, color)
+            surf.blit(img, (panel_x + pad_x, yy))
+            return yy + row_h
+
+        for entry in rows:
+            y = draw_row(entry, y, highlight=bool(entry.get("_is_you")))
+
+        if you and not you_in_top:
+            y += S(8)
+            draw_text_center(surf, small, "— you —", y, PURPLE_DARK)
+            y += small.get_height() + S(4)
+            draw_row(you, y, highlight=True)
+
+        status_text = _status_line(status, 48)
+        if status_text:
+            draw_text_center(
+                surf,
+                small,
+                status_text,
+                panel_y + ph - pad_y - small.get_height(),
+                (180, 40, 40),
+            )
+
+        # Bottom actions
+        bw, bh = S(320), S(90)
+        gap = S(40)
+        total = bw * 2 + gap
+        bx = (LOGICAL_W - total) // 2
+        by = panel_y + ph + S(28)
+        self.board_back_btn.rect.update(bx, by, bw, bh)
+        self.skip_board_btn.rect.update(bx + bw + gap, by, bw, bh)
+        self.board_back_btn.text = "STATS"
+        self.skip_board_btn.text = "CTA"
+        self.board_back_btn.draw(surf, self.assets.font(S(22)))
+        self.skip_board_btn.draw(surf, self.assets.font(S(22)))
+
+        self._layout_cta(self.board_back_btn.rect.bottom + S(24))
         self.cta_btn.draw(surf, self.assets.font_lg)
 
     def quiz(self, surf, quiz, buttons, graddie_btn, feedback, used_graddie):
@@ -598,25 +825,16 @@ class Screens:
             )
 
         if feedback:
-            pad_x, pad_y = S(36), S(20)
-            # Size banner to text first (single-line when short), then wrap if needed.
-            text_w = option_font.size(feedback)[0]
-            max_inner = min(S(520), LOGICAL_W - S(80) - 2 * pad_x)
-            inner_w = min(text_w, max_inner)
-            lines = wrap_text(option_font, feedback, inner_w)
-            line_h = option_font.get_height()
-            line_gap = _QUIZ_LINE_GAP if len(lines) > 1 else 0
+            msg_rect, lines, line_h, line_gap = quiz_feedback_message_rect(
+                self.assets, panel, feedback
+            )
             total_h = line_h * len(lines) + line_gap * (len(lines) - 1)
-            max_line_w = max(option_font.size(line)[0] for line in lines)
-            msg_w = max_line_w + 2 * pad_x
-            msg_h = total_h + 2 * pad_y
-            msg_x = (LOGICAL_W - msg_w) // 2
-            msg_y = panel.bottom + S(24)
-            msg_y = min(msg_y, LOGICAL_H - msg_h - S(40))
-            msg = pygame.transform.scale(self.assets.quiz_message, (msg_w, msg_h))
-            surf.blit(msg, (msg_x, msg_y))
-            fy = msg_y + (msg_h - total_h) // 2
+            msg = pygame.transform.scale(
+                self.assets.quiz_message, (msg_rect.w, msg_rect.h)
+            )
+            surf.blit(msg, msg_rect.topleft)
+            fy = msg_rect.y + (msg_rect.h - total_h) // 2
             for line in lines:
                 img = option_font.render(line, True, INK)
-                surf.blit(img, (msg_x + (msg_w - img.get_width()) // 2, fy))
+                surf.blit(img, (msg_rect.x + (msg_rect.w - img.get_width()) // 2, fy))
                 fy += line_h + line_gap

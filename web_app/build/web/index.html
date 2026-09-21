@@ -259,6 +259,25 @@ function dismiss_load_ui() {
 window.dismiss_load_ui = dismiss_load_ui
 window.mark_load_past_download = mark_load_past_download
 
+// Bust browser / CDN cache for the game archive (was Cache-Control: immutable).
+// Bump __FR_ARCHIVE_VER whenever world.py / assets inside the archive change.
+window.__FR_ARCHIVE_VER = "20260921lb1";
+(function () {
+    var VER = window.__FR_ARCHIVE_VER;
+    var orig = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+        var url = typeof input === "string" ? input : (input && input.url) || "";
+        if (/web_app\.(tar\.gz|apk)(\?|$)/.test(url) && url.indexOf("v=" + VER) < 0) {
+            var join = url.indexOf("?") >= 0 ? "&" : "?";
+            var next = url + join + "v=" + VER;
+            if (typeof input === "string") input = next;
+            else input = new Request(next, input);
+            init = Object.assign({}, init || {}, { cache: "reload" });
+        }
+        return orig(input, init);
+    };
+})();
+
 </script>
 
     <title>Future Run</title>
@@ -275,7 +294,7 @@ window.mark_load_past_download = mark_load_past_download
     <link rel="dns-prefetch" href="https://pygame-web.github.io">
     <link rel="preconnect" href="https://pygame-web.github.io" crossorigin>
     <link rel="modulepreload" href="https://pygame-web.github.io/cdn/0.9.3/pythons.js" crossorigin>
-    <link rel="preload" href="./web_app.tar.gz" as="fetch" type="application/gzip" crossorigin="anonymous">
+    <link rel="preload" href="./web_app.tar.gz?v=20260921lb1" as="fetch" type="application/gzip" crossorigin="anonymous">
 
     <style>
         #status {

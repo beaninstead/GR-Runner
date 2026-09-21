@@ -1,7 +1,9 @@
+import asyncio
 import math
 
 import pygame
 
+from future_run import leaderboard as lb
 from future_run.constants import (
     COIN_VALUE,
     CTA_URL,
@@ -12,6 +14,7 @@ from future_run.constants import (
     LOGICAL_H,
     LOGICAL_W,
     PLAYER_H,
+    QUIZ_FEEDBACK_FRAMES,
     RENDER_SCALE,
     S,
     START_LIVES,
@@ -29,9 +32,10 @@ from future_run.ui import (
     Button,
     HUD,
     Screens,
+    quiz_feedback_message_rect,
     quiz_layout,
 )
-from future_run.web import IS_WEB, open_url
+from future_run.web import IS_WEB, debug_hotkeys_allowed, open_url
 from future_run.world import World
 
 
@@ -62,9 +66,17 @@ class FutureRun:
         self.feedback_timer = 0
         self.pending_fail = False
         self.pending_fail_life = -1
+        self._eat_pointer = False
         self.level_index = 0
         self.intro_timer = 0
         self.reset_campaign()
+        # Win-screen leaderboard (anonymous nicknames, UTC daily).
+        self.win_mode = "stats"  # stats | nickname | board
+        self.win_nickname = lb.get_saved_nickname()
+        self.win_status = ""
+        self.win_board = None
+        self._lb_busy = False
+        self._text_input_active = False
 
     def reset_campaign(self):
         self.level_index = 0
@@ -235,7 +247,7 @@ class FutureRun:
             self.pending_fail_life = int(quiz.get("life_on_fail", -1) or 0)
             self.quiz_buttons[index].result = "wrong"
             self.quiz_buttons[correct].result = "correct"
-        self.feedback_timer = 90
+        self.feedback_timer = QUIZ_FEEDBACK_FRAMES
 
     def _grant_reward(self, reward, points):
         if not reward:
@@ -270,19 +282,162 @@ class FutureRun:
         self.touch.clear()
         next_i = self.level_index + 1
         if next_i >= len(LEVELS):
+            self.win_mode = "stats"
+            self.win_status = ""
+            self.win_board = None
+            self._lb_busy = False
+            self.win_nickname = lb.get_saved_nickname()
+            self._stop_text_input()
             self.state = "win"
             return
         self.state = "world_clear"
         self.clear_continue = Button(
             (S(280), S(1200), S(520), S(140)),
-            "NEXT WORLD",
-            image=self.assets.btn_start,
+            "",
+            image=self.assets.btn_continue,
+            overlay_text=False,
         )
         self._pending_next = next_i
+
+    def _debug_jump_to_win(self):
+        """F9 (local only): open win/leaderboard flow with sample campaign stats."""
+        self.touch.clear()
+        # Plausible end-of-campaign numbers so SUBMIT SCORE → nickname → board works.
+        self.coin_count = 48
+        self.decision_points = 720
+        self.deaths = 1
+        self.smart = 8
+        self.lives = 2
+        self.win_mode = "stats"
+        self.win_status = ""
+        self.win_board = None
+        self._lb_busy = False
+        self.win_nickname = lb.get_saved_nickname()
+        self._stop_text_input()
+        self.state = "win"
 
     def continue_next_world(self):
         self.start_level(self._pending_next)
         self.state = "intro"
+
+    def _start_text_input(self):
+        if self._text_input_active:
+            return
+        self._text_input_active = True
+        try:
+            pygame.key.start_text_input()
+        except Exception:
+            pass
+
+    def _stop_text_input(self):
+        if not self._text_input_active:
+            return
+        self._text_input_active = False
+        try:
+            pygame.key.stop_text_input()
+        except Exception:
+            pass
+
+    def _open_nickname(self):
+        self.win_mode = "nickname"
+        self.win_status = ""
+        if not self.win_nickname:
+            self.win_nickname = lb.get_saved_nickname()
+        self._start_text_input()
+
+    def _submit_to_leaderboard(self):
+        if self._lb_busy:
+            return
+        ok, msg = lb.validate_nickname_client(self.win_nickname)
+        if not ok:
+            self.win_status = msg
+            return
+        self.win_nickname = msg
+        lb.save_nickname(self.win_nickname)
+        self.win_status = "Posting…"
+        self._lb_busy = True
+        payload = lb.build_submit_payload(
+            self.win_nickname,
+            self.score,
+            self.smart,
+            self.coin_count,
+            self.lives,
+        )
+
+        async def _run():
+            try:
+                success, data = await lb.submit_score_async(payload)
+                if success:
+                    self.win_board = data
+                    self.win_status = ""
+                    self.win_mode = "board"
+                    self._stop_text_input()
+                else:
+                    self.win_status = lb.error_message(data)
+            except Exception as e:
+                self.win_status = lb.error_message(str(e), "Could not reach leaderboard")
+            finally:
+                self._lb_busy = False
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(_run())
+        except Exception:
+            # Fallback sync (desktop)
+            success, data = lb.submit_score_sync(payload)
+            self._lb_busy = False
+            if success:
+                self.win_board = data
+                self.win_status = ""
+                self.win_mode = "board"
+                self._stop_text_input()
+            else:
+                self.win_status = lb.error_message(data)
+
+    def _handle_win_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = self._logical_pos(event.pos)
+            if self.screens.cta_btn.hit(pos):
+                open_url(CTA_URL)
+                return
+            if self.win_mode == "stats" and self.screens.submit_btn.hit(pos):
+                self._open_nickname()
+                return
+            if self.win_mode == "nickname" and self.screens.confirm_nick_btn.hit(pos):
+                self._submit_to_leaderboard()
+                return
+            if self.win_mode == "board":
+                if self.screens.board_back_btn.hit(pos):
+                    self.win_mode = "stats"
+                    return
+                if self.screens.skip_board_btn.hit(pos):
+                    open_url(CTA_URL)
+                    return
+            return
+
+        if self.win_mode == "nickname":
+            if event.type == pygame.TEXTINPUT:
+                ch = event.text
+                if ch and len(self.win_nickname) < 16:
+                    self.win_nickname += str(ch)
+                    self.win_status = ""
+                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_BACKSPACE:
+                    self.win_nickname = self.win_nickname[:-1]
+                    self.win_status = ""
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    self._submit_to_leaderboard()
+                elif event.key == pygame.K_ESCAPE:
+                    self.win_mode = "stats"
+                    self._stop_text_input()
+                return
+
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            if self.win_mode == "stats":
+                self._open_nickname()
+            elif self.win_mode == "board":
+                open_url(CTA_URL)
 
     def _maybe_grant_world4_invincible(self):
         """After World 4's third pit, grant long-lasting invincibility once."""
@@ -497,8 +652,28 @@ class FutureRun:
         self.logical.blit(main, (tx, ty))
 
     def handle_event(self, event):
+        if self._eat_pointer:
+            if event.type in (pygame.MOUSEBUTTONUP, pygame.FINGERUP):
+                self._eat_pointer = False
+                self.touch.clear()
+            elif event.type in (
+                pygame.MOUSEBUTTONDOWN,
+                pygame.FINGERDOWN,
+                pygame.MOUSEMOTION,
+                pygame.FINGERMOTION,
+            ):
+                return
         if self.state == "play":
             self.touch.handle_event(event, self._logical_pos, self._finger_logical)
+
+        # F9: local-only jump to campaign win / leaderboard (desktop or localhost web).
+        if (
+            event.type == pygame.KEYDOWN
+            and event.key == pygame.K_F9
+            and debug_hotkeys_allowed()
+        ):
+            self._debug_jump_to_win()
+            return
 
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             if self.state == "play":
@@ -552,14 +727,32 @@ class FutureRun:
                 self.reset_world()
                 self.state = "intro"
         elif self.state == "win":
-            if event.type == pygame.MOUSEBUTTONDOWN and self.screens.cta_btn.hit(
-                self._logical_pos(event.pos)
-            ):
-                open_url(CTA_URL)
-            if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                open_url(CTA_URL)
+            self._handle_win_event(event)
         elif self.state == "quiz":
             if self.feedback:
+                # Early dismiss: tap/click outside quiz panel + feedback bubble.
+                pos = None
+                if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", 1) == 1:
+                    pos = self._logical_pos(event.pos)
+                elif event.type == pygame.FINGERDOWN:
+                    pos = self._finger_logical(event)
+                if pos is not None and self.active_quiz:
+                    layout = quiz_layout(
+                        self.assets,
+                        self.active_quiz,
+                        has_helper=self.graddie_btn is not None,
+                    )
+                    panel = layout["panel"]
+                    msg, _, _, _ = quiz_feedback_message_rect(
+                        self.assets, panel, self.feedback
+                    )
+                    if not panel.collidepoint(pos) and (
+                        msg is None or not msg.collidepoint(pos)
+                    ):
+                        self.finish_quiz()
+                        # Swallow matching up / duplicate pointer so play pads
+                        # don't fire from the same outside tap.
+                        self._eat_pointer = True
                 return
             if event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_1, pygame.K_a):
@@ -649,7 +842,15 @@ class FutureRun:
                 self.screens.game_over(self.logical, self.score)
             elif self.state == "win":
                 self.screens.win(
-                    self.logical, self.score, self.coin_count, self.smart, self.lives
+                    self.logical,
+                    self.score,
+                    self.coin_count,
+                    self.smart,
+                    self.lives,
+                    mode=self.win_mode,
+                    nick=self.win_nickname,
+                    status=self.win_status,
+                    board=self.win_board,
                 )
             elif self.state == "pause":
                 shade = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
