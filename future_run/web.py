@@ -56,18 +56,9 @@ def show_nickname_html_input(initial: str = "") -> None:
             el.setAttribute("enterkeyhint", "done")
             el.setAttribute("maxlength", "16")
             el.setAttribute("inputmode", "text")
-            el.setAttribute("placeholder", "Nickname (3–16)")
-            # Visible overlay: opacity:0 / display:none often blocks the OSK on iOS.
-            # font-size >= 16px avoids Safari auto-zoom on focus.
-            el.style.cssText = (
-                "position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);"
-                "width:min(86vw,420px);height:48px;z-index:10000;"
-                "font-size:16px;line-height:20px;font-family:system-ui,sans-serif;"
-                "border:3px solid #6b3fa0;border-radius:12px;"
-                "padding:8px 14px;box-sizing:border-box;"
-                "background:#ffffff;color:#1a1028;outline:none;"
-                "-webkit-appearance:none;appearance:none;"
-            )
+            el.setAttribute("placeholder", "")
+            el.setAttribute("aria-label", "Player name")
+            # Styles applied in show_nickname_html_input (invisible overlay).
             doc.body.appendChild(el)
             # Enter / Escape flags polled from Python (JS→Python callbacks are flaky).
             window.eval(
@@ -107,6 +98,19 @@ def show_nickname_html_input(initial: str = "") -> None:
             )
 
         el.value = str(initial or "")[:16]
+        # Keep a real focused <input> for mobile OSK, but don't paint a second
+        # visible text box over the pygame dialogue. opacity ~0.01 still allows
+        # focus + keyboard on iOS (unlike display:none / opacity:0).
+        # font-size >= 16px avoids Safari auto-zoom on focus.
+        el.style.cssText = (
+            "position:fixed;left:50%;bottom:12px;transform:translateX(-50%);"
+            "width:min(80vw,400px);height:40px;z-index:10000;"
+            "font-size:16px;line-height:20px;opacity:0.01;"
+            "border:none;border-radius:0;padding:8px;margin:0;"
+            "box-sizing:border-box;outline:none;box-shadow:none;"
+            "background:#ffffff;color:#000000;caret-color:#000000;"
+            "-webkit-appearance:none;appearance:none;"
+        )
         el.style.display = "block"
         window.__frNeedNickInput = True
         window.__frNickEnter = False
@@ -153,6 +157,15 @@ def focus_nickname_html_input() -> None:
         if el is None:
             return
         window.__frNeedNickInput = True
+        el.style.cssText = (
+            "position:fixed;left:50%;bottom:12px;transform:translateX(-50%);"
+            "width:min(80vw,400px);height:40px;z-index:10000;"
+            "font-size:16px;line-height:20px;opacity:0.01;"
+            "border:none;border-radius:0;padding:8px;margin:0;"
+            "box-sizing:border-box;outline:none;box-shadow:none;"
+            "background:#ffffff;color:#000000;caret-color:#000000;"
+            "-webkit-appearance:none;appearance:none;"
+        )
         el.style.display = "block"
         el.focus()
     except Exception:

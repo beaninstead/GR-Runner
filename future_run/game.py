@@ -8,6 +8,8 @@ from future_run.constants import (
     COIN_VALUE,
     CTA_URL,
     GOLD,
+    GRADDIE_POPUP_FRAMES,
+    GRADDIE_POPUP_INTRO_FRAMES,
     GROUND_TOP,
     INK,
     INVINCIBLE_FRAMES,
@@ -79,14 +81,17 @@ class FutureRun:
         self._eat_pointer = False
         self.level_index = 0
         self.intro_timer = 0
+        self.graddie_popup_timer = 0
+        self.graddie_popup_age = 0
         self.reset_campaign()
         # Win-screen leaderboard (anonymous nicknames, UTC daily).
-        self.win_mode = "stats"  # stats | nickname | board
+        self.win_mode = "stats"  # stats | board (nickname modal removed)
         self.win_nickname = lb.get_saved_nickname()
         self.win_status = ""
         self.win_board = None
         self._lb_busy = False
         self._text_input_active = False
+        self.name_status = ""
 
     def reset_campaign(self):
         self.level_index = 0
@@ -144,6 +149,8 @@ class FutureRun:
         self.invincible_granted = False
         self.camera.follow(self.player, self.world.world_right)
         self.intro_timer = WORLD_INTRO_FRAMES
+        self.graddie_popup_timer = 0
+        self.graddie_popup_age = 0
         self.touch.clear()
         if self.state not in ("menu", "gameover", "win"):
             self.state = "intro"
@@ -201,14 +208,9 @@ class FutureRun:
             )
         self.graddie_btn = None
         if can_help and layout["helper_rect"] is not None:
-            label = (
-                "Ask Graddie"
-                if (self.has_graddie and not self.graddie_used)
-                else "Use Right-Fit"
-            )
             self.graddie_btn = Button(
                 layout["helper_rect"],
-                label,
+                "Ask Graddie",
                 image=self.assets.ask_graddie,
                 overlay_text=True,
                 text_color=INK,
@@ -330,6 +332,32 @@ class FutureRun:
         self.start_level(self._pending_next)
         self.state = "intro"
 
+    def _begin_campaign(self):
+        """Start (or resume into) world intro after username is known."""
+        self._stop_text_input()
+        self.touch.clear()
+        self.reset_campaign()
+        self.state = "intro"
+
+    def _open_name_entry(self):
+        """Always ask for a display name after START (pre-fill saved nick if any)."""
+        saved = lb.get_saved_nickname()
+        self.win_nickname = saved or ""
+        self.name_status = ""
+        self.touch.clear()
+        self.state = "name"
+        self._start_text_input()
+
+    def _confirm_name_entry(self):
+        ok, msg = lb.validate_nickname_client(self.win_nickname)
+        if not ok:
+            self.name_status = msg
+            return
+        self.win_nickname = msg
+        lb.save_nickname(self.win_nickname)
+        self.name_status = ""
+        self._begin_campaign()
+
     def _start_text_input(self):
         if self._text_input_active:
             return
@@ -354,38 +382,64 @@ class FutureRun:
             pass
 
     def _sync_web_nickname_input(self):
-        """Pull HTML input value / Enter / Escape into win nickname state."""
-        if not (IS_WEB and self._text_input_active and self.win_mode == "nickname"):
+        """Pull HTML input value / Enter / Escape into nickname or name-entry state."""
+        if not (IS_WEB and self._text_input_active):
             return
-        val = poll_nickname_html_input()
-        if val is not None and val != self.win_nickname:
-            self.win_nickname = val
-            self.win_status = ""
-        if consume_nickname_html_enter():
-            self._submit_to_leaderboard()
+        if self.state == "name":
+            val = poll_nickname_html_input()
+            if val is not None and val != self.win_nickname:
+                self.win_nickname = val
+                self.name_status = ""
+            if consume_nickname_html_enter():
+                self._confirm_name_entry()
+                return
+            if consume_nickname_html_escape():
+                self._stop_text_input()
+                self.state = "menu"
             return
-        if consume_nickname_html_escape():
-            self.win_mode = "stats"
-            self._stop_text_input()
 
-    def _open_nickname(self):
-        self.win_mode = "nickname"
-        self.win_status = ""
+    def _view_leaderboard(self):
+        """Open daily board from win stats — never show the POST SCORE nickname modal.
+
+        Uses the name from pre-play "What should we call you?" to post the score
+        when available; otherwise fetches the board read-only.
+        """
+        # Re-open immediately if we already loaded a board (after × dismiss).
+        if self.win_board is not None:
+            self._lb_busy = False
+            self.win_mode = "board"
+            self.win_status = ""
+            return
+        if self._lb_busy:
+            return
         if not self.win_nickname:
             self.win_nickname = lb.get_saved_nickname()
-        self._start_text_input()
+        ok, msg = (
+            lb.validate_nickname_client(self.win_nickname)
+            if self.win_nickname
+            else (False, "")
+        )
+        self._stop_text_input()
+        if ok:
+            self.win_nickname = msg
+            self._submit_to_leaderboard()
+        else:
+            self._fetch_leaderboard()
 
     def _submit_to_leaderboard(self):
         if self._lb_busy:
             return
         ok, msg = lb.validate_nickname_client(self.win_nickname)
         if not ok:
-            self.win_status = msg
+            # No usable name — show board without posting (skip nickname modal).
+            self._fetch_leaderboard()
             return
         self.win_nickname = msg
         lb.save_nickname(self.win_nickname)
+        self.win_mode = "board"
         self.win_status = "Posting…"
         self._lb_busy = True
+        self._stop_text_input()
         payload = lb.build_submit_payload(
             self.win_nickname,
             self.score,
@@ -400,12 +454,17 @@ class FutureRun:
                 if success:
                     self.win_board = data
                     self.win_status = ""
-                    self.win_mode = "board"
-                    self._stop_text_input()
+                    # Don't yank the user back if they already dismissed with ×.
+                    if self.win_mode == "board":
+                        self.win_mode = "board"
                 else:
-                    self.win_status = lb.error_message(data)
+                    if self.win_mode == "board":
+                        self.win_status = lb.error_message(data)
             except Exception as e:
-                self.win_status = lb.error_message(str(e), "Could not reach leaderboard")
+                if self.win_mode == "board":
+                    self.win_status = lb.error_message(
+                        str(e), "Could not reach leaderboard"
+                    )
             finally:
                 self._lb_busy = False
 
@@ -420,71 +479,82 @@ class FutureRun:
                 self.win_board = data
                 self.win_status = ""
                 self.win_mode = "board"
-                self._stop_text_input()
             else:
                 self.win_status = lb.error_message(data)
+
+    def _fetch_leaderboard(self):
+        """Show today's board without posting (no nickname / read-only)."""
+        if self._lb_busy:
+            return
+        self.win_mode = "board"
+        self.win_status = "Loading…"
+        self._lb_busy = True
+        self._stop_text_input()
+        player_id = lb.get_player_id()
+
+        async def _run():
+            try:
+                success, data = await lb.fetch_leaderboard_async(player_id)
+                if success:
+                    self.win_board = data
+                    if self.win_mode == "board":
+                        self.win_status = ""
+                else:
+                    if self.win_mode == "board":
+                        self.win_status = lb.error_message(data)
+            except Exception as e:
+                if self.win_mode == "board":
+                    self.win_status = lb.error_message(
+                        str(e), "Could not reach leaderboard"
+                    )
+            finally:
+                self._lb_busy = False
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(_run())
+        except Exception:
+            success, data = lb.fetch_leaderboard_sync(player_id)
+            self._lb_busy = False
+            if success:
+                self.win_board = data
+                self.win_status = ""
+            else:
+                self.win_status = lb.error_message(data)
+
+    def _dismiss_leaderboard(self):
+        """Return to win stats; allow View Leaderboard to open again."""
+        self.win_mode = "stats"
+        self.win_status = ""
+        self._lb_busy = False
 
     def _handle_win_event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
             pos = self._logical_pos(event.pos)
+            if self.win_mode == "board":
+                if self.screens.board_close_btn.hit(pos):
+                    self._dismiss_leaderboard()
+                    return
+                if self.screens.cta_btn.hit(pos):
+                    open_url(CTA_URL)
+                return
             if self.screens.cta_btn.hit(pos):
                 open_url(CTA_URL)
                 return
             if self.win_mode == "stats" and self.screens.submit_btn.hit(pos):
-                self._open_nickname()
+                self._view_leaderboard()
                 return
-            if self.win_mode == "nickname":
-                if self.screens.confirm_nick_btn.hit(pos):
-                    self._submit_to_leaderboard()
-                    return
-                # Re-focus HTML input so the soft keyboard can reopen after blur.
-                if IS_WEB:
-                    focus_nickname_html_input()
-                return
-            if self.win_mode == "board":
-                if self.screens.board_back_btn.hit(pos):
-                    self.win_mode = "stats"
-                    return
-                if self.screens.skip_board_btn.hit(pos):
-                    open_url(CTA_URL)
-                    return
             return
 
-        if self.win_mode == "nickname":
-            # On web the HTML <input> is the source of truth (avoids double chars
-            # from TEXTINPUT + value poll). Desktop still uses pygame IME events.
-            if IS_WEB and self._text_input_active:
-                if event.type == pygame.KEYDOWN and event.key in (
-                    pygame.K_RETURN,
-                    pygame.K_KP_ENTER,
-                ):
-                    self._submit_to_leaderboard()
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    self.win_mode = "stats"
-                    self._stop_text_input()
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE and self.win_mode == "board":
+                self._dismiss_leaderboard()
                 return
-            if event.type == pygame.TEXTINPUT:
-                ch = event.text
-                if ch and len(self.win_nickname) < 16:
-                    self.win_nickname += str(ch)
-                    self.win_status = ""
-                return
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_BACKSPACE:
-                    self.win_nickname = self.win_nickname[:-1]
-                    self.win_status = ""
-                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                    self._submit_to_leaderboard()
-                elif event.key == pygame.K_ESCAPE:
-                    self.win_mode = "stats"
-                    self._stop_text_input()
-                return
-
-        if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
-            if self.win_mode == "stats":
-                self._open_nickname()
-            elif self.win_mode == "board":
-                open_url(CTA_URL)
+            if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                if self.win_mode == "stats":
+                    self._view_leaderboard()
+                elif self.win_mode == "board":
+                    open_url(CTA_URL)
 
     def _maybe_grant_world4_invincible(self):
         """After World 4's third pit, grant long-lasting invincibility once."""
@@ -549,6 +619,9 @@ class FutureRun:
                 g.alive = False
                 self.has_graddie = True
                 self.graddie_used = False
+                self.graddie_popup_timer = GRADDIE_POPUP_FRAMES
+                self.graddie_popup_age = 0
+                self.touch.clear()
 
         for trig in self.world.triggers:
             if trig.used:
@@ -698,6 +771,11 @@ class FutureRun:
         main.set_alpha(min(255, text_a + 40))
         self.logical.blit(main, (tx, ty))
 
+    def dismiss_graddie_popup(self):
+        self.graddie_popup_timer = 0
+        self.graddie_popup_age = 0
+        self.touch.clear()
+
     def handle_event(self, event):
         if self._eat_pointer:
             if event.type in (pygame.MOUSEBUTTONUP, pygame.FINGERUP):
@@ -708,6 +786,25 @@ class FutureRun:
                 pygame.FINGERDOWN,
                 pygame.MOUSEMOTION,
                 pygame.FINGERMOTION,
+            ):
+                return
+        # Graddie pickup card: any tap/click dismisses immediately.
+        if self.state == "play" and self.graddie_popup_timer > 0:
+            if event.type == pygame.MOUSEBUTTONDOWN and getattr(event, "button", 1) == 1:
+                self.dismiss_graddie_popup()
+                self._eat_pointer = True
+                return
+            if event.type == pygame.FINGERDOWN:
+                self.dismiss_graddie_popup()
+                self._eat_pointer = True
+                return
+            # Swallow movement while the card is up.
+            if event.type in (
+                pygame.MOUSEBUTTONUP,
+                pygame.FINGERUP,
+                pygame.MOUSEMOTION,
+                pygame.FINGERMOTION,
+                pygame.KEYDOWN,
             ):
                 return
         if self.state == "play":
@@ -735,13 +832,58 @@ class FutureRun:
             if event.type == pygame.MOUSEBUTTONDOWN and self.screens.start_btn.hit(
                 self._logical_pos(event.pos)
             ):
-                self.touch.clear()
-                self.reset_campaign()
-                self.state = "intro"
+                self._open_name_entry()
             if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                self.touch.clear()
-                self.reset_campaign()
-                self.state = "intro"
+                self._open_name_entry()
+        elif self.state == "name":
+            # Web: DOM <input> drives soft keyboard + is polled each frame. Mouse
+            # only needs special handling so taps re-focus that input. Do NOT
+            # swallow KEYDOWN/TEXTINPUT — when the DOM field loses focus (common
+            # with an invisible overlay), pygame events are the fallback.
+            if (
+                IS_WEB
+                and self._text_input_active
+                and event.type == pygame.MOUSEBUTTONDOWN
+            ):
+                pos = self._logical_pos(event.pos)
+                if self.screens.name_continue_btn.hit(pos):
+                    self._confirm_name_entry()
+                else:
+                    focus_nickname_html_input()
+                return
+            if event.type == pygame.TEXTINPUT:
+                ch = getattr(event, "text", "")
+                if ch and len(self.win_nickname) < 16:
+                    self.win_nickname += str(ch)
+                    self.name_status = ""
+                    if IS_WEB:
+                        # Keep DOM value in sync when pygame is driving input.
+                        try:
+                            from future_run.web import show_nickname_html_input
+
+                            show_nickname_html_input(self.win_nickname)
+                        except Exception:
+                            pass
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_BACKSPACE:
+                    self.win_nickname = self.win_nickname[:-1]
+                    self.name_status = ""
+                    if IS_WEB:
+                        try:
+                            from future_run.web import show_nickname_html_input
+
+                            show_nickname_html_input(self.win_nickname)
+                        except Exception:
+                            pass
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    self._confirm_name_entry()
+                elif event.key == pygame.K_ESCAPE:
+                    self._stop_text_input()
+                    self.state = "menu"
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                pos = self._logical_pos(event.pos)
+                if self.screens.name_continue_btn.hit(pos):
+                    self._confirm_name_entry()
         elif self.state == "intro":
             if event.type == pygame.KEYDOWN and event.key in (
                 pygame.K_RETURN,
@@ -844,7 +986,7 @@ class FutureRun:
         return self._logical_pos(pos)
 
     def update(self, dt=1.0):
-        if self.state == "win":
+        if self.state == "win" or self.state == "name":
             self._sync_web_nickname_input()
         if self.state == "intro":
             self.intro_timer -= dt
@@ -852,7 +994,13 @@ class FutureRun:
                 self.touch.clear()
                 self.state = "play"
         elif self.state == "play":
-            self.update_play(dt)
+            if self.graddie_popup_timer > 0:
+                self.graddie_popup_age += dt
+                self.graddie_popup_timer -= dt
+                if self.graddie_popup_timer <= 0:
+                    self.dismiss_graddie_popup()
+            else:
+                self.update_play(dt)
         elif self.state == "quiz" and self.feedback:
             self.feedback_timer -= dt
             if self.feedback_timer <= 0:
@@ -861,6 +1009,11 @@ class FutureRun:
     def draw(self):
         if self.state == "menu":
             self.screens.menu(self.logical)
+        elif self.state == "name":
+            self.screens.menu_world.draw_background(self.logical, self.screens._menu_cam)
+            self.screens.name_entry(
+                self.logical, self.win_nickname, self.name_status
+            )
         else:
             self.draw_play()
             if self.state == "intro":
@@ -911,7 +1064,14 @@ class FutureRun:
                 )
 
         if self.state == "play":
-            self.touch.draw(self.logical, self.assets.font_sm)
+            if self.graddie_popup_timer > 0:
+                self.screens.graddie_pickup(
+                    self.logical,
+                    self.graddie_popup_age,
+                    GRADDIE_POPUP_INTRO_FRAMES,
+                )
+            else:
+                self.touch.draw(self.logical, self.assets.font_sm)
 
         ww, wh = self.window.get_size()
         scale = min(ww / LOGICAL_W, wh / LOGICAL_H)

@@ -83,6 +83,9 @@ SKILL_BOOST_MAX = S(14.5)
 WORLD_INTRO_FRAMES = 90
 # Quiz answer feedback bubble — ~5s of real time under frame_scale(dt).
 QUIZ_FEEDBACK_FRAMES = 60 * 5
+# Graddie pickup card — auto-dismiss after ~5s, or on tap.
+GRADDIE_POPUP_FRAMES = 60 * 5
+GRADDIE_POPUP_INTRO_FRAMES = 18
 CTA_URL = "https://www.gradright.com"
 # Daily leaderboard API. Empty = same-origin `/api/leaderboard` on web
 # (Vercel). Override for local static preview against production, e.g.

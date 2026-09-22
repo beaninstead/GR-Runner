@@ -602,6 +602,53 @@ def clean_button(path):
     return trim_alpha(image, pad=2)
 
 
+def make_pixel_medal(size):
+    """Tiny gold medal + ribbon for the View Leaderboard button."""
+    size = max(16, int(size))
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    # Ribbon (two triangles under the disc).
+    mid = size // 2
+    ribbon_top = int(size * 0.42)
+    red = (196, 48, 64, 255)
+    dark_red = (140, 28, 48, 255)
+    pygame.draw.polygon(
+        surf,
+        red,
+        [(mid - size // 5, ribbon_top), (mid - 1, size - 1), (mid - size // 10, ribbon_top)],
+    )
+    pygame.draw.polygon(
+        surf,
+        dark_red,
+        [(mid + 1, ribbon_top), (mid + size // 5, ribbon_top), (mid + size // 10, size - 1)],
+    )
+    # Medal disc.
+    gold = (250, 204, 21, 255)
+    gold_dark = (180, 130, 20, 255)
+    gold_hi = (255, 236, 140, 255)
+    r = max(3, int(size * 0.28))
+    cx, cy = mid, int(size * 0.34)
+    pygame.draw.circle(surf, gold_dark, (cx, cy), r + 1)
+    pygame.draw.circle(surf, gold, (cx, cy), r)
+    pygame.draw.circle(surf, gold_hi, (cx - r // 3, cy - r // 3), max(1, r // 3))
+    # Simple star notch in center.
+    star = max(2, r // 2)
+    pygame.draw.polygon(
+        surf,
+        gold_dark,
+        [
+            (cx, cy - star),
+            (cx + star // 3, cy - star // 4),
+            (cx + star, cy),
+            (cx + star // 3, cy + star // 4),
+            (cx, cy + star),
+            (cx - star // 3, cy + star // 4),
+            (cx - star, cy),
+            (cx - star // 3, cy - star // 4),
+        ],
+    )
+    return surf
+
+
 def solid_tile(image, size, fill=None):
     image = trim_alpha(image, pad=0)
     scaled = scale_nearest(image, (size, size))
@@ -641,11 +688,12 @@ class Assets:
         box = (GRADDIE_SIZE, GRADDIE_SIZE)
         self.graddie = [fit_box_bottom(frame, box) for frame in raw_graddie]
 
+        # GradRight brands at half prior display width (title + world cleared).
         self.logo_white = fit_width(
-            load_image("img/brand/gr_logo_white.png", colorkey=(0, 0, 0)), S(720)
+            load_image("img/brand/gr_logo_white.png", colorkey=(0, 0, 0)), S(360)
         )
         self.logo_color = fit_width(
-            load_image("img/brand/gr_logo_color.png", colorkey=(0, 0, 0)), S(720)
+            load_image("img/brand/gr_logo_color.png", colorkey=(0, 0, 0)), S(360)
         )
 
         sky = load_image("img/future_run/pack_sky.png", alpha=True)
@@ -721,6 +769,8 @@ class Assets:
         self.btn_retry = clean_button("img/future_run/pack_btn_retry.png")
         self.btn_home = clean_button("img/future_run/pack_btn_home.png")
         self.btn_cta = clean_button("img/future_run/pack_btn_cta.png")
+        self.btn_leaderboard = clean_button("img/future_run/pack_btn_leaderboard.png")
+        self.medal_icon = make_pixel_medal(S(56))
         self.hud_heart = scale_nearest(
             trim_alpha(
                 knockout_color(
@@ -769,6 +819,11 @@ class Assets:
         self.quiz_message = _clean_ui("img/future_run/quiz_message.png")
         # Pre-trimmed ask-helper banner (Graddie + white text panel).
         self.ask_graddie = load_image("img/future_run/ask_graddie.png", alpha=True)
+        # "PICKED UP GRADDIE!" power-up card (full art + copy).
+        pickup = load_image("img/future_run/graddie_pickup.png", alpha=True)
+        pickup = knockout_color(pickup, (0, 0, 0), threshold=28, fade=10)
+        pickup = knockout_edge_dark(pickup, luma=14)
+        self.graddie_pickup = fit_width(trim_alpha(pickup, pad=2), S(720))
 
         # World-specific skyline panoramas: scale to GROUND_TOP, keep aspect.
         # Drawn as a single scrolling strip (not tiled) — art edges do not match.

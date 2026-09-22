@@ -455,18 +455,35 @@ class Screens:
             image=assets.btn_cta,
             overlay_text=False,
         )
-        # Text buttons for daily leaderboard (win flow).
+        # Cream pixel button → View Leaderboard (win stats screen).
         self.submit_btn = Button(
-            (S(200), S(1400), S(680), S(100)), "SUBMIT SCORE", color=PURPLE
+            (S(200), S(1400), S(680), S(130)),
+            "View Leaderboard",
+            image=assets.btn_leaderboard,
+            overlay_text=True,
+            text_color=INK,
+            text_inset_left=0.16,
+            text_inset_right=0.04,
         )
         self.confirm_nick_btn = Button(
             (S(200), S(1200), S(680), S(100)), "POST SCORE", color=PURPLE
+        )
+        # Start-flow name entry confirm (image CONTINUE).
+        self.name_continue_btn = Button(
+            (S(280), S(1200), S(520), S(140)),
+            "",
+            image=assets.btn_continue,
+            overlay_text=False,
         )
         self.board_back_btn = Button(
             (S(200), S(1600), S(320), S(90)), "BACK", color=PURPLE_DARK
         )
         self.skip_board_btn = Button(
             (S(560), S(1600), S(320), S(90)), "SKIP", color=PURPLE_DARK
+        )
+        # Leaderboard dismiss (×) — rect set each frame in _draw_leaderboard.
+        self.board_close_btn = Button(
+            (S(900), S(80), S(72), S(72)), "×", color=PURPLE_DARK
         )
         self.nick_field_rect = pygame.Rect(0, 0, 0, 0)
 
@@ -477,7 +494,11 @@ class Screens:
         px = 3 * TILE
         py = GROUND_TOP - idle.get_height()
         surf.blit(idle, (px, py))
-        title_y = S(70)
+        title_y = S(350)
+        # GradRight brand above Future Run title with 80 design-px gap.
+        brand = self.assets.logo_color
+        brand_bottom = title_y - S(80)
+        blit_center(surf, brand, brand_bottom - brand.get_height())
         blit_center(surf, self.assets.title, title_y)
         y = title_y + self.assets.title.get_height() + S(18)
         self.assets.draw_pixels_center(surf, "YOUR FUTURE. YOUR CHOICES.", y, S(20))
@@ -486,6 +507,132 @@ class Screens:
         # Vertically centered; hitbox matches drawn rect.
         self.start_btn.rect.y = LOGICAL_H // 2 - self.start_btn.rect.h // 2
         self.start_btn.draw(surf, self.assets.font_lg)
+
+    def graddie_pickup(self, surf, age, intro_frames):
+        """Draw the Graddie power-up pickup card with scale-in + glow pulse."""
+        img = self.assets.graddie_pickup
+        # Ease-out scale from small → full over intro_frames.
+        t = 1.0 if intro_frames <= 0 else min(1.0, max(0.0, age / float(intro_frames)))
+        ease = 1.0 - (1.0 - t) ** 3
+        scale = 0.55 + 0.45 * ease
+        # Slight slide down into place during entrance.
+        slide = int(S(40) * (1.0 - ease))
+        top_y = S(350) + slide
+
+        nw = max(1, int(img.get_width() * scale))
+        nh = max(1, int(img.get_height() * scale))
+        if RENDER_SCALE < 1.0:
+            drawn = pygame.transform.scale(img, (nw, nh))
+        else:
+            drawn = pygame.transform.smoothscale(img, (nw, nh))
+
+        x = (LOGICAL_W - drawn.get_width()) // 2
+        y = top_y
+
+        # Soft purple glow pulse behind the card (continuous while visible).
+        wave = 0.5 + 0.5 * math.sin(age * 0.18)
+        glow_pad = S(28)
+        glow = pygame.Surface(
+            (drawn.get_width() + glow_pad * 2, drawn.get_height() + glow_pad * 2),
+            pygame.SRCALPHA,
+        )
+        glow_color = (167, 139, 250, int(55 + 70 * wave))
+        pygame.draw.rect(
+            glow,
+            glow_color,
+            glow.get_rect().inflate(-S(8), -S(8)),
+            border_radius=S(28),
+        )
+        # Light scale breathe on the glow plate.
+        g_scale = 1.0 + 0.04 * wave
+        gw = max(1, int(glow.get_width() * g_scale))
+        gh = max(1, int(glow.get_height() * g_scale))
+        if RENDER_SCALE < 1.0:
+            glow = pygame.transform.scale(glow, (gw, gh))
+        else:
+            glow = pygame.transform.smoothscale(glow, (gw, gh))
+        surf.blit(
+            glow,
+            (
+                x - (glow.get_width() - drawn.get_width()) // 2,
+                y - (glow.get_height() - drawn.get_height()) // 2,
+            ),
+        )
+        surf.blit(drawn, (x, y))
+
+    def name_entry(self, surf, nick, status=""):
+        """Pre-play username prompt: What should we call you?"""
+        # Soft dim over menu-style world backdrop (caller draws play/menu bg).
+        overlay = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
+        overlay.fill((10, 8, 28, 200))
+        surf.blit(overlay, (0, 0))
+
+        title_font = self.assets.font(S(36))
+        body_font = self.assets.font(S(24))
+        hint_font = self.assets.font(S(18))
+        pad_x, pad_y = S(48), S(40)
+        field_h = S(88)
+        inner_w = S(820)
+        pw = inner_w + pad_x * 2
+        # title + hint + field + status + continue btn
+        cont_img = self.assets.btn_continue
+        btn_w = S(520)
+        btn_h = max(1, int(round(btn_w * cont_img.get_height() / cont_img.get_width())))
+        ph = (
+            pad_y * 2
+            + title_font.get_height()
+            + S(28)
+            + hint_font.get_height()
+            + S(28)
+            + field_h
+            + S(24)
+            + S(40)
+            + btn_h
+        )
+        scale_fn = (
+            pygame.transform.scale
+            if RENDER_SCALE < 1.0
+            else pygame.transform.smoothscale
+        )
+        panel = scale_fn(self.assets.win_stats_panel, (pw, ph))
+        panel_x = (LOGICAL_W - pw) // 2
+        panel_y = max(S(280), (LOGICAL_H - ph) // 2 - S(60))
+        surf.blit(panel, (panel_x, panel_y))
+
+        y = panel_y + pad_y
+        # Wrap prompt across two lines if needed for Press Start 2P width.
+        prompt = "What should we call you?"
+        prompt_lines = wrap_text(title_font, prompt, inner_w - S(16))
+        for line in prompt_lines:
+            draw_text_center(surf, title_font, line, y, INK)
+            y += title_font.get_height() + S(10)
+        y += S(12)
+        draw_text_center(surf, hint_font, "3-16 letters / numbers", y, PURPLE_DARK)
+        y += hint_font.get_height() + S(24)
+
+        field = pygame.Rect(panel_x + pad_x, y, inner_w, field_h)
+        pygame.draw.rect(surf, WHITE, field, border_radius=S(16))
+        pygame.draw.rect(surf, PURPLE, field, S(4), border_radius=S(16))
+        shown = str(nick or "") + "|"
+        nick_img = body_font.render(shown[:22], True, INK)
+        surf.blit(
+            nick_img,
+            (field.x + S(24), field.centery - nick_img.get_height() // 2),
+        )
+        self.nick_field_rect = field
+        y = field.bottom + S(20)
+
+        status_text = _status_line(status, 40)
+        if status_text:
+            err_font = self.assets.font(S(20))
+            draw_text_center(surf, err_font, status_text, y, (180, 40, 40))
+            y += err_font.get_height() + S(16)
+        else:
+            y += S(16)
+
+        btn_x = (LOGICAL_W - btn_w) // 2
+        self.name_continue_btn.rect.update(btn_x, y, btn_w, btn_h)
+        self.name_continue_btn.draw(surf, self.assets.font_lg)
 
     def world_intro(self, surf, code, name, subtitle):
         overlay = pygame.Surface((LOGICAL_W, LOGICAL_H), pygame.SRCALPHA)
@@ -514,6 +661,10 @@ class Screens:
         name_font = self.assets.font(S(36))
         score_font = self.assets.font(S(28))
         title_y = S(560)
+        # White GradRight brand above WORLD CLEARED with 90 design-px gap.
+        brand = self.assets.logo_white
+        brand_bottom = title_y - S(90)
+        blit_center(surf, brand, brand_bottom - brand.get_height())
         draw_text_center(surf, title_font, "WORLD CLEARED", title_y, GOLD)
         name_y = title_y + title_font.get_height() + S(80)
         draw_text_center(surf, name_font, name, name_y, WHITE)
@@ -631,11 +782,20 @@ class Screens:
             draw_text_center(surf, stats_font, line, y, INK)
             y += line_gap
 
-        submit_w, submit_h = S(680), S(100)
+        # Cream "View Leaderboard" button — aspect from pack art (~1024×201).
+        lb_img = self.assets.btn_leaderboard
+        submit_w = S(680)
+        submit_h = max(
+            S(100), int(round(submit_w * lb_img.get_height() / max(1, lb_img.get_width())))
+        )
         submit_x = (LOGICAL_W - submit_w) // 2
         submit_y = panel_y + ph + S(48)
         self.submit_btn.rect.update(submit_x, submit_y, submit_w, submit_h)
         self.submit_btn.draw(surf, btn_font)
+        medal = self.assets.medal_icon
+        mx = self.submit_btn.rect.x + S(22)
+        my = self.submit_btn.rect.centery - medal.get_height() // 2
+        surf.blit(medal, (mx, my))
 
         self._layout_cta(self.submit_btn.rect.bottom + S(36))
         self.cta_btn.draw(surf, self.assets.font_lg)
@@ -692,10 +852,10 @@ class Screens:
 
     def _draw_leaderboard(self, surf, scale_fn, board, status):
         title_font = self.assets.font(S(34))
-        row_font = self.assets.font(S(20))
-        small = self.assets.font(S(16))
+        row_font = self.assets.font(S(26))
+        head_font = self.assets.font(S(14))
+        small = self.assets.font(S(18))
         pad_x, pad_y = S(36), S(36)
-        day = (board or {}).get("day_key", "UTC")
         top = list((board or {}).get("top") or [])
         you = (board or {}).get("you")
         rows = top[:10]
@@ -713,37 +873,107 @@ class Screens:
                 you["_separator"] = True
 
         pw = S(960)
-        row_h = S(44)
-        header_h = title_font.get_height() + small.get_height() + S(36)
+        row_h = S(56)
+        # Title + column headers + gap
+        header_h = title_font.get_height() + S(28) + head_font.get_height() * 2 + S(28)
         extra = row_h + S(16) if (you and not you_in_top) else 0
-        ph = pad_y * 2 + header_h + row_h * max(1, len(rows)) + extra + S(20)
-        ph = min(ph, LOGICAL_H - S(280))
+
+        # Match win-stats CTA ("Build your future") vertical slot, then stretch
+        # the white panel down to just above that button (no STATS/CTA row).
+        cta_img = self.assets.btn_cta
+        cta_w = S(560)
+        cta_h = max(
+            1, int(round(cta_w * cta_img.get_height() / max(1, cta_img.get_width())))
+        )
+        cta_y = LOGICAL_H - cta_h - S(48)
+
+        panel_y = S(72)
+        ph = max(S(400), cta_y - panel_y - S(40))
+        content_ph = pad_y * 2 + header_h + row_h * max(10, len(rows)) + extra + S(20)
+        ph = max(ph, min(content_ph, cta_y - panel_y - S(40)))
+
         panel = scale_fn(self.assets.win_stats_panel, (pw, ph))
         panel_x = (LOGICAL_W - pw) // 2
-        panel_y = S(72)
         surf.blit(panel, (panel_x, panel_y))
 
-        y = panel_y + pad_y
+        # Dismiss × in the top-right of the panel.
+        close_size = S(64)
+        close_pad = S(18)
+        close_rect = pygame.Rect(
+            panel_x + pw - close_pad - close_size,
+            panel_y + close_pad,
+            close_size,
+            close_size,
+        )
+        self.board_close_btn.rect.update(close_rect)
+        pygame.draw.rect(surf, PURPLE_DARK, close_rect, border_radius=S(14))
+        close_font = self.assets.font(S(36))
+        x_img = close_font.render("×", True, WHITE)
+        surf.blit(
+            x_img,
+            (
+                close_rect.centerx - x_img.get_width() // 2,
+                close_rect.centery - x_img.get_height() // 2 - S(2),
+            ),
+        )
+
+        y = panel_y + pad_y + S(25)
         draw_text_center(surf, title_font, "DAILY TOP 10", y, INK)
-        y += title_font.get_height() + S(8)
-        draw_text_center(surf, small, f"UTC day  {day}", y, PURPLE_DARK)
-        y += small.get_height() + S(20)
+        y += title_font.get_height() + S(28)
+
+        # Column geometry (left → right): rank | username | score | smart decisions
+        inner_left = panel_x + pad_x
+        inner_right = panel_x + pw - pad_x
+        rank_x = inner_left
+        name_x = inner_left + S(70)
+        score_right = inner_right - S(210)
+        smart_right = inner_right
+
+        def blit_left(font, text, x, yy, color):
+            img = font.render(str(text), True, color)
+            surf.blit(img, (x, yy))
+            return img
+
+        def blit_right(font, text, right_x, yy, color):
+            img = font.render(str(text), True, color)
+            surf.blit(img, (right_x - img.get_width(), yy))
+            return img
+
+        # Column labels (Smart Decisions as two lines to fit Press Start 2P width).
+        label_color = PURPLE_DARK
+        blit_left(head_font, "Username", name_x, y, label_color)
+        blit_right(head_font, "Score", score_right, y, label_color)
+        smart1 = head_font.render("Smart", True, label_color)
+        smart2 = head_font.render("Decisions", True, label_color)
+        smart_w = max(smart1.get_width(), smart2.get_width())
+        surf.blit(smart1, (smart_right - smart_w, y))
+        surf.blit(
+            smart2,
+            (smart_right - smart_w, y + head_font.get_height() + S(2)),
+        )
+        y += head_font.get_height() * 2 + S(18)
 
         def draw_row(entry, yy, highlight=False):
             rank = entry.get("rank", "?")
-            nick = str(entry.get("nickname", "?"))[:14]
+            nick = str(entry.get("nickname", "?"))[:12]
             sc = entry.get("score", 0)
             sm = entry.get("smart", 0)
-            label = f"{rank:>2}  {nick:<14}  {sc:>5}  S{sm}"
             color = PURPLE if highlight else INK
-            img = row_font.render(label, True, color)
-            surf.blit(img, (panel_x + pad_x, yy))
+            blit_left(row_font, f"{rank}", rank_x, yy, color)
+            blit_left(row_font, nick, name_x, yy, color)
+            blit_right(row_font, str(sc), score_right, yy, color)
+            blit_right(row_font, str(sm), smart_right, yy, color)
             return yy + row_h
 
+        list_bottom = panel_y + ph - pad_y - (
+            small.get_height() + S(8) if status else 0
+        )
         for entry in rows:
+            if y + row_h > list_bottom:
+                break
             y = draw_row(entry, y, highlight=bool(entry.get("_is_you")))
 
-        if you and not you_in_top:
+        if you and not you_in_top and y + row_h + S(24) <= list_bottom:
             y += S(8)
             draw_text_center(surf, small, "— you —", y, PURPLE_DARK)
             y += small.get_height() + S(4)
@@ -759,20 +989,7 @@ class Screens:
                 (180, 40, 40),
             )
 
-        # Bottom actions
-        bw, bh = S(320), S(90)
-        gap = S(40)
-        total = bw * 2 + gap
-        bx = (LOGICAL_W - total) // 2
-        by = panel_y + ph + S(28)
-        self.board_back_btn.rect.update(bx, by, bw, bh)
-        self.skip_board_btn.rect.update(bx + bw + gap, by, bw, bh)
-        self.board_back_btn.text = "STATS"
-        self.skip_board_btn.text = "CTA"
-        self.board_back_btn.draw(surf, self.assets.font(S(22)))
-        self.skip_board_btn.draw(surf, self.assets.font(S(22)))
-
-        self._layout_cta(self.board_back_btn.rect.bottom + S(24))
+        self.cta_btn.rect.update((LOGICAL_W - cta_w) // 2, cta_y, cta_w, cta_h)
         self.cta_btn.draw(surf, self.assets.font_lg)
 
     def quiz(self, surf, quiz, buttons, graddie_btn, feedback, used_graddie):
