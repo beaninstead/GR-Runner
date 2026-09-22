@@ -98,6 +98,197 @@ def save_nickname(nickname: str) -> None:
     _ls_set(_STORAGE_NICK, nickname)
 
 
+# Family-friendly reject message (never echo the blocked term).
+_NICK_REJECT_MSG = "Please choose a different name"
+
+# Compact tokens (after normalize) — English + Hinglish romanizations.
+# Prefer whole-token / includes checks on compacted alphanumeric only.
+_ABUSE_COMPACT = frozenset(
+    {
+        # English
+        "ass",
+        "asshole",
+        "bastard",
+        "bitch",
+        "bollocks",
+        "cock",
+        "crap",
+        "cunt",
+        "damn",
+        "dick",
+        "fag",
+        "faggot",
+        "fuck",
+        "fucker",
+        "fucking",
+        "motherfucker",
+        "nigger",
+        "nigga",
+        "piss",
+        "porn",
+        "pussy",
+        "shit",
+        "slut",
+        "twat",
+        "whore",
+        "sex",
+        "sexy",
+        "nude",
+        "nudes",
+        # Hinglish / romanized Hindi (common slang & abbreviations)
+        "madarchod",
+        "madrchod",
+        "madarchodh",
+        "behenchod",
+        "bhenchod",
+        "bahenchod",
+        "bhenchodh",
+        "betichod",
+        "bhosdike",
+        "bhosdi",
+        "bhosada",
+        "bhosda",
+        "bhosdee",
+        "bsdk",
+        "bstdk",
+        "chutiya",
+        "chutya",
+        "chutiyo",
+        "chutiyapa",
+        "chut",
+        "choot",
+        "chootiya",
+        "gandu",
+        "gaandu",
+        "gand",
+        "gaand",
+        "lund",
+        "loda",
+        "lode",
+        "lawda",
+        "lawde",
+        "harami",
+        "haraami",
+        "saala",
+        "sala",
+        "saali",
+        "sali",
+        "kamina",
+        "kamine",
+        "kutiya",
+        "kutte",
+        "kutia",
+        "randi",
+        "raandi",
+        "rand",
+        "hijda",
+        "hijada",
+        "napunsak",
+        "mc",
+        "bc",
+        "mader",
+        "bkl",
+        "chodu",
+        "chod",
+        "chode",
+        "jhaantu",
+        "jhantu",
+        "tatti",
+        "tharkee",
+        "tharki",
+        "suar",
+        "suarike",
+    }
+)
+
+# Longer substrings that should match inside compacted nick even if glued.
+_ABUSE_SUBSTR = (
+    "madarchod",
+    "behenchod",
+    "bhenchod",
+    "betichod",
+    "bhosdi",
+    "chutiya",
+    "chootiya",
+    "motherfuck",
+    "fuck",
+    "shit",
+    "bitch",
+    "asshole",
+    "nigger",
+    "nigga",
+)
+
+# Devanagari abuse / vulgar terms (checked on raw + lowercased NFC).
+_ABUSE_DEVANAGARI = (
+    "मदरचोद",
+    "मादरचोद",
+    "बहनचोद",
+    "भेनचोद",
+    "चूतिया",
+    "चुतिया",
+    "गांडू",
+    "गांड",
+    "भोसड़ी",
+    "भोसडी",
+    "हरामी",
+    "हरामजादा",
+    "कमीना",
+    "रंडी",
+    "लौड़ा",
+    "लौडा",
+    "लंड",
+    "चूत",
+    "साला",
+    "साली",
+    "कुत्ता",
+    "कुतिया",
+)
+
+
+def _normalize_nick_for_abuse(raw: str) -> str:
+    """Lowercase, leetspeak-ish map, strip non-alphanumerics for compact match."""
+    s = str(raw or "").lower()
+    trans = str.maketrans(
+        {
+            "0": "o",
+            "1": "i",
+            "3": "e",
+            "4": "a",
+            "5": "s",
+            "7": "t",
+            "8": "b",
+            "@": "a",
+            "$": "s",
+            "!": "i",
+        }
+    )
+    s = s.translate(trans)
+    return "".join(ch for ch in s if ch.isalnum())
+
+
+def _nickname_is_abusive(raw: str) -> bool:
+    text = str(raw or "")
+    # Devanagari / mixed-script checks on original text.
+    for term in _ABUSE_DEVANAGARI:
+        if term in text:
+            return True
+    compact = _normalize_nick_for_abuse(text)
+    if not compact:
+        return False
+    if compact in _ABUSE_COMPACT:
+        return True
+    # Token-ish: split original on spaces/underscores then compact each.
+    for part in text.replace("_", " ").split():
+        p = _normalize_nick_for_abuse(part)
+        if p in _ABUSE_COMPACT:
+            return True
+    for sub in _ABUSE_SUBSTR:
+        if len(sub) >= 4 and sub in compact:
+            return True
+    return False
+
+
 def validate_nickname_client(raw: str):
     """Mirror server rules for quick UI feedback. Returns (ok, message_or_nick)."""
     if raw is None:
@@ -105,6 +296,8 @@ def validate_nickname_client(raw: str):
     trimmed = " ".join(str(raw).strip().split())
     if len(trimmed) < 3 or len(trimmed) > 16:
         return False, "3–16 characters"
+    if _nickname_is_abusive(trimmed):
+        return False, _NICK_REJECT_MSG
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _")
     if not trimmed or trimmed[0] in " _":
         return False, "Start with a letter or number"

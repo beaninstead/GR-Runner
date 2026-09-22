@@ -115,6 +115,14 @@ def show_nickname_html_input(initial: str = "") -> None:
         window.__frNeedNickInput = True
         window.__frNickEnter = False
         window.__frNickEscape = False
+        # Freeze canvas layout before OSK resizes visualViewport.
+        try:
+            window.eval(
+                "try{if(typeof claimCanvasLayout==='function')claimCanvasLayout();"
+                "else if(typeof fitGameCanvas==='function')fitGameCanvas();}catch(e){}"
+            )
+        except Exception:
+            pass
         try:
             el.focus()
             # Place caret at end.
@@ -136,6 +144,21 @@ def hide_nickname_html_input() -> None:
         window.__frNeedNickInput = False
         window.__frNickEnter = False
         window.__frNickEscape = False
+        # Unfreeze canvas letterbox after soft keyboard closes.
+        try:
+            window.eval(
+                """
+(function () {
+  try {
+    if (typeof window.__frFrozenLayout !== 'undefined') window.__frFrozenLayout = null;
+    if (typeof claimCanvasLayout === 'function') claimCanvasLayout();
+    else if (typeof fitGameCanvas === 'function') fitGameCanvas();
+  } catch (e) {}
+})();
+"""
+            )
+        except Exception:
+            pass
         el = window.document.getElementById(_NICK_INPUT_ID)
         if el is not None:
             try:
