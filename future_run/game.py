@@ -144,6 +144,7 @@ class FutureRun:
         self.active_quiz = None
         self.quiz_buttons = []
         self.graddie_btn = None
+        self.quiz_helper_used = False
         self.feedback = ""
         self.pending_fail = False
         self.invincible_granted = False
@@ -163,10 +164,16 @@ class FutureRun:
     def level_cfg(self):
         return LEVELS[self.level_index]
 
-    def lose_life(self, snap=True, amount=1):
+    def lose_life(self, snap=True, amount=1, *, force=False):
         if amount == 0:
             return
-        if (self.player.invincible > 0 or self.player.skill_boost > 0) and snap:
+        # Enemy/hazard damage is blocked by invincibility; pit/void falls use
+        # force=True so they always kill (Mario-style: stars don't save pits).
+        if (
+            not force
+            and (self.player.invincible > 0 or self.player.skill_boost > 0)
+            and snap
+        ):
             return
         self.lives -= amount
         self.deaths += amount
@@ -186,6 +193,7 @@ class FutureRun:
         self.active_quiz = quiz
         self.feedback = ""
         self.pending_fail = False
+        self.quiz_helper_used = False
         self.state = "quiz"
         self.quiz_buttons = []
         can_help = (self.has_graddie and not self.graddie_used) or (
@@ -230,6 +238,7 @@ class FutureRun:
             used = True
         if not used:
             return
+        self.quiz_helper_used = True
         correct = self.active_quiz["correct"]
         self.quiz_buttons[correct].highlight = True
         self.graddie_btn = None
@@ -401,8 +410,8 @@ class FutureRun:
     def _view_leaderboard(self):
         """Open daily board from win stats — never show the POST SCORE nickname modal.
 
-        Uses the name from pre-play "What should we call you?" to post the score
-        when available; otherwise fetches the board read-only.
+        Always fetches today's top 10. When a valid pre-play nickname exists,
+        also posts the score in the background (silent — no status text).
         """
         # Re-open immediately if we already loaded a board (after × dismiss).
         if self.win_board is not None:
@@ -420,27 +429,29 @@ class FutureRun:
             else (False, "")
         )
         self._stop_text_input()
+        should_submit = False
         if ok:
             self.win_nickname = msg
-            self._submit_to_leaderboard()
-        else:
-            self._fetch_leaderboard()
+            lb.save_nickname(self.win_nickname)
+            should_submit = True
+        self._load_leaderboard(submit=should_submit)
 
-    def _submit_to_leaderboard(self):
-        if self._lb_busy:
+    def _apply_board_result(self, board, err=""):
+        """Store board even after × dismiss so reopen works; status only if blank."""
+        if board is not None:
+            self.win_board = board
+        if self.win_mode != "board":
             return
-        ok, msg = lb.validate_nickname_client(self.win_nickname)
-        if not ok:
-            # No usable name — show board without posting (skip nickname modal).
-            self._fetch_leaderboard()
-            return
-        self.win_nickname = msg
-        lb.save_nickname(self.win_nickname)
-        self.win_mode = "board"
-        self.win_status = "Posting…"
-        self._lb_busy = True
-        self._stop_text_input()
-        payload = lb.build_submit_payload(
+        top = list((board or {}).get("top") or [])
+        # Keep errors off the cream panel when rows are visible (incl. offline demo).
+        if err and not top:
+            self.win_status = err
+        else:
+            self.win_status = ""
+
+    def _offline_board(self):
+        return lb.fallback_board(
+            lb.get_player_id(),
             self.win_nickname,
             self.score,
             self.smart,
@@ -448,79 +459,116 @@ class FutureRun:
             self.lives,
         )
 
-        async def _run():
-            try:
-                success, data = await lb.submit_score_async(payload)
-                if success:
-                    self.win_board = data
-                    self.win_status = ""
-                    # Don't yank the user back if they already dismissed with ×.
-                    if self.win_mode == "board":
-                        self.win_mode = "board"
-                else:
-                    if self.win_mode == "board":
-                        self.win_status = lb.error_message(data)
-            except Exception as e:
-                if self.win_mode == "board":
-                    self.win_status = lb.error_message(
-                        str(e), "Could not reach leaderboard"
-                    )
-            finally:
-                self._lb_busy = False
+    def _pending_player_board(self):
+        """Optimistic row while POST/GET runs — never leave the cream panel blank."""
+        return lb.local_player_board(
+            lb.get_player_id(),
+            self.win_nickname,
+            self.score,
+            self.smart,
+            self.coin_count,
+            self.lives,
+        )
 
-        try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(_run())
-        except Exception:
-            # Fallback sync (desktop)
-            success, data = lb.submit_score_sync(payload)
-            self._lb_busy = False
-            if success:
-                self.win_board = data
-                self.win_status = ""
-                self.win_mode = "board"
-            else:
-                self.win_status = lb.error_message(data)
+    def _with_local_you(self, board):
+        if not self.win_nickname:
+            return board
+        return lb.ensure_player_on_board(
+            board,
+            lb.get_player_id(),
+            self.win_nickname,
+            self.score,
+            self.smart,
+            self.coin_count,
+            self.lives,
+        )
 
-    def _fetch_leaderboard(self):
-        """Show today's board without posting (no nickname / read-only)."""
+    def _load_leaderboard(self, submit=False):
+        """Fetch daily top 10; optionally POST score. Never leave the board blank."""
         if self._lb_busy:
             return
         self.win_mode = "board"
-        self.win_status = "Loading…"
+        self.win_status = ""  # silent — no Posting… / Loading… on the cream board
         self._lb_busy = True
         self._stop_text_input()
         player_id = lb.get_player_id()
+        payload = None
+        if submit:
+            payload = lb.build_submit_payload(
+                self.win_nickname,
+                self.score,
+                self.smart,
+                self.coin_count,
+                self.lives,
+            )
+        # Show the player's score immediately (API refresh replaces this).
+        if submit and self.win_nickname:
+            self.win_board = self._pending_player_board()
+        elif self.win_board is None:
+            self.win_board = {"top": [], "you": None, "pending": True}
 
         async def _run():
+            board = None
+            err = ""
             try:
+                if payload is not None:
+                    success, data = await lb.submit_score_async(payload)
+                    if success and lb.is_board_payload(data):
+                        board = data
+                    elif not success:
+                        err = lb.error_message(data)
+                # Always GET after POST (or when submit skipped) for a fresh list.
                 success, data = await lb.fetch_leaderboard_async(player_id)
-                if success:
-                    self.win_board = data
-                    if self.win_mode == "board":
-                        self.win_status = ""
-                else:
-                    if self.win_mode == "board":
-                        self.win_status = lb.error_message(data)
+                if success and lb.is_board_payload(data):
+                    board = data
+                elif board is None and not err:
+                    err = lb.error_message(data)
             except Exception as e:
-                if self.win_mode == "board":
-                    self.win_status = lb.error_message(
-                        str(e), "Could not reach leaderboard"
-                    )
-            finally:
-                self._lb_busy = False
+                err = lb.error_message(str(e), "Could not reach leaderboard")
+            if board is None:
+                board = self._offline_board()
+            elif submit and self.win_nickname:
+                board = self._with_local_you(board)
+            self._apply_board_result(board, err)
+            self._lb_busy = False
 
         try:
             loop = asyncio.get_event_loop()
             loop.create_task(_run())
         except Exception:
+            board = None
+            err = ""
+            if payload is not None:
+                success, data = lb.submit_score_sync(payload)
+                if success and lb.is_board_payload(data):
+                    board = data
+                elif not success:
+                    err = lb.error_message(data)
             success, data = lb.fetch_leaderboard_sync(player_id)
+            if success and lb.is_board_payload(data):
+                board = data
+            elif board is None and not err:
+                err = lb.error_message(data)
+            if board is None:
+                board = self._offline_board()
+            elif submit and self.win_nickname:
+                board = self._with_local_you(board)
             self._lb_busy = False
-            if success:
-                self.win_board = data
-                self.win_status = ""
-            else:
-                self.win_status = lb.error_message(data)
+            self._apply_board_result(board, err)
+
+    def _fetch_leaderboard(self):
+        """Show today's board without posting (read-only)."""
+        self._load_leaderboard(submit=False)
+
+    def _submit_to_leaderboard(self):
+        """Post score then show board (used if a caller still expects submit)."""
+        ok, msg = lb.validate_nickname_client(self.win_nickname)
+        if not ok:
+            self._load_leaderboard(submit=False)
+            return
+        self.win_nickname = msg
+        lb.save_nickname(self.win_nickname)
+        self._load_leaderboard(submit=True)
 
     def _dismiss_leaderboard(self):
         """Return to win stats; allow View Leaderboard to open again."""
@@ -584,7 +632,7 @@ class FutureRun:
         self._maybe_grant_world4_invincible()
 
         if self.player.fell_in_pit(self.world.ground):
-            self.lose_life(snap=True)
+            self.lose_life(snap=True, force=True)
 
         if self.player.invincible <= 0 and self.player.skill_boost <= 0:
             for book in self.world.books:
@@ -1031,14 +1079,13 @@ class FutureRun:
                     self.clear_continue,
                 )
             elif self.state == "quiz":
-                helper_used = self.graddie_used or self.right_fit_used
                 self.screens.quiz(
                     self.logical,
                     self.active_quiz,
                     self.quiz_buttons,
                     self.graddie_btn,
                     self.feedback,
-                    helper_used,
+                    self.quiz_helper_used,
                 )
             elif self.state == "gameover":
                 self.screens.game_over(self.logical, self.score)

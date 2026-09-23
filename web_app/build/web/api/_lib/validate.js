@@ -243,7 +243,8 @@ export function validateSubmitBody(body) {
     if (coins === null) return { error: "coins out of range" };
   }
   if (body.lives !== undefined && body.lives !== null) {
-    lives = asInt(body.lives, 0, 3);
+    // START_LIVES is 3; community quiz can grant +1 → allow headroom.
+    lives = asInt(body.lives, 0, 10);
     if (lives === null) return { error: "lives out of range" };
   }
   if (body.client_ts !== undefined && body.client_ts !== null) {

@@ -87,7 +87,8 @@ QUIZ_FEEDBACK_FRAMES = 60 * 5
 GRADDIE_POPUP_FRAMES = 60 * 5
 GRADDIE_POPUP_INTRO_FRAMES = 18
 CTA_URL = "https://www.gradright.com"
-# Daily leaderboard API. Empty = same-origin `/api/leaderboard` on web
-# (Vercel). Override for local static preview against production, e.g.
-# "https://future-run.vercel.app". Days are UTC calendar buckets.
+# Daily leaderboard API. Empty = same-origin `/api/leaderboard` on deployed
+# web hosts (Vercel). Localhost static previews auto-use production
+# https://future-run.vercel.app (no local /api). Override with a full base URL
+# if needed. Days are UTC calendar buckets.
 LEADERBOARD_API_URL = ""

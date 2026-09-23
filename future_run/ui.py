@@ -644,6 +644,10 @@ class Screens:
         subtitle_font = self.assets.font(S(28))
         hint_font = self.assets.font(S(18))
         title_y = S(560)
+        # White GradRight brand above WORLD N with 90 design-px gap (matches world clear).
+        brand = self.assets.logo_white
+        brand_bottom = title_y - S(90)
+        blit_center(surf, brand, brand_bottom - brand.get_height())
         draw_text_center(surf, code_font, f"WORLD {code}", title_y, GOLD)
         name_y = title_y + code_font.get_height() + S(80)
         draw_text_center(surf, name_font, name, name_y, WHITE)
@@ -853,9 +857,11 @@ class Screens:
     def _draw_leaderboard(self, surf, scale_fn, board, status):
         title_font = self.assets.font(S(34))
         row_font = self.assets.font(S(26))
-        head_font = self.assets.font(S(14))
+        # Headers need to read on mobile; ≥16px from cream edges (panel art
+        # inset is ~22–40 design-px, so pad_x must clear that + 16).
+        head_font = self.assets.font(S(20))
         small = self.assets.font(S(18))
-        pad_x, pad_y = S(36), S(36)
+        pad_x, pad_y = S(56), S(36)
         top = list((board or {}).get("top") or [])
         you = (board or {}).get("you")
         rows = top[:10]
@@ -926,7 +932,10 @@ class Screens:
         inner_right = panel_x + pw - pad_x
         rank_x = inner_left
         name_x = inner_left + S(70)
-        score_right = inner_right - S(210)
+        # Reserve width for two-line "Smart Decisions" at head_font size.
+        smart_col_w = S(240)
+        # Score column (header + values) shifted 200 design-px left of prior slot.
+        score_right = inner_right - smart_col_w - S(200)
         smart_right = inner_right
 
         def blit_left(font, text, x, yy, color):
@@ -943,13 +952,13 @@ class Screens:
         label_color = PURPLE_DARK
         blit_left(head_font, "Username", name_x, y, label_color)
         blit_right(head_font, "Score", score_right, y, label_color)
-        smart1 = head_font.render("Smart", True, label_color)
-        smart2 = head_font.render("Decisions", True, label_color)
-        smart_w = max(smart1.get_width(), smart2.get_width())
-        surf.blit(smart1, (smart_right - smart_w, y))
-        surf.blit(
-            smart2,
-            (smart_right - smart_w, y + head_font.get_height() + S(2)),
+        blit_right(head_font, "Smart", smart_right, y, label_color)
+        blit_right(
+            head_font,
+            "Decisions",
+            smart_right,
+            y + head_font.get_height() + S(2),
+            label_color,
         )
         y += head_font.get_height() * 2 + S(18)
 
@@ -968,6 +977,14 @@ class Screens:
         list_bottom = panel_y + ph - pad_y - (
             small.get_height() + S(8) if status else 0
         )
+        if not rows and not status:
+            if (board or {}).get("pending"):
+                empty_msg = "Updating scores…"
+            elif (board or {}).get("offline"):
+                empty_msg = "Demo board (offline)"
+            else:
+                empty_msg = "No scores yet today"
+            draw_text_center(surf, row_font, empty_msg, y + S(24), PURPLE_DARK)
         for entry in rows:
             if y + row_h > list_bottom:
                 break

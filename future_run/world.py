@@ -214,18 +214,28 @@ class FlyingPhone:
     def __init__(self, x, y, left, right, speed, frames):
         w, h = frames[0].get_size()
         self.rect = pygame.Rect(x, y, w, h)
-        self.left = left
-        self.right = right
-        self.speed = speed
+        # Sub-pixel x: int(speed*dt) alone drops motion when web scale + small
+        # frame_scale leave speed*dt < 1 (wings still flap via timer).
+        self.x = float(x)
+        self.left = float(left)
+        self.right = float(right)
+        self.speed = float(speed)
         self.dir = 1
         self.frames = frames
         self.timer = 0.0
         self._glow_cache = {}
 
     def update(self, dt=1.0):
-        self.rect.x += int(self.speed * self.dir * dt)
-        if self.rect.x < self.left or self.rect.x > self.right:
-            self.dir *= -1
+        self.x += self.speed * self.dir * dt
+        # Clamp + set dir (do not only flip): overshoot without clamp can
+        # reverse every frame and look frozen while the flap timer continues.
+        if self.x < self.left:
+            self.x = self.left
+            self.dir = 1
+        elif self.x > self.right:
+            self.x = self.right
+            self.dir = -1
+        self.rect.x = int(round(self.x))
         self.timer += dt
 
     def draw(self, surf, cam):
@@ -246,9 +256,10 @@ class FallingHazard:
 
     def __init__(self, x, y, speed, image):
         w, h = image.get_size()
-        self.base_y = y
+        self.base_y = float(y)
         self.rect = pygame.Rect(x, y, w, h)
-        self.speed = speed
+        self.y = float(y)
+        self.speed = float(speed)
         self.image = image
         self.timer = 0.0
         self.dir = 1
@@ -256,9 +267,16 @@ class FallingHazard:
 
     def update(self, dt=1.0):
         self.timer += dt
-        self.rect.y += int(self.speed * self.dir * dt)
-        if self.rect.y < self.base_y - 2 * TILE or self.rect.y > self.base_y + 2 * TILE:
-            self.dir *= -1
+        self.y += self.speed * self.dir * dt
+        lo = self.base_y - 2 * TILE
+        hi = self.base_y + 2 * TILE
+        if self.y < lo:
+            self.y = lo
+            self.dir = 1
+        elif self.y > hi:
+            self.y = hi
+            self.dir = -1
+        self.rect.y = int(round(self.y))
 
     def draw(self, surf, cam):
         img = self.image
